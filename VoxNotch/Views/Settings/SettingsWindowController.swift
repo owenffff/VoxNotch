@@ -1,0 +1,88 @@
+//
+//  SettingsWindowController.swift
+//  VoxNotch
+//
+//  NSWindowController for managing the Settings window
+//
+
+import AppKit
+import SwiftUI
+
+/// Window controller for the Settings window
+final class SettingsWindowController: NSWindowController {
+
+  // MARK: - Singleton
+
+  static let shared = SettingsWindowController()
+
+  // MARK: - Initialization
+
+  private init() {
+    let window = NSWindow(
+      contentRect: NSRect(x: 0, y: 0, width: 860, height: 580),
+      styleMask: [.titled, .closable],
+      backing: .buffered,
+      defer: false
+    )
+
+    window.title = "VoxNotch Settings"
+    window.center()
+    window.isReleasedWhenClosed = false
+    window.contentView = NSHostingView(rootView: SettingsView())
+
+    /// Restore window position
+    window.setFrameAutosaveName("VoxNotchSettingsWindow")
+    window.sharingType = SettingsManager.shared.hideFromScreenRecording ? .none : .readOnly
+
+    super.init(window: window)
+
+    NotificationCenter.default.addObserver(
+      self,
+      selector: #selector(handleSharingTypeChanged),
+      name: .hideFromScreenRecordingChanged,
+      object: nil
+    )
+  }
+
+  // MARK: - Notifications
+
+  @objc private func handleSharingTypeChanged() {
+    window?.sharingType = SettingsManager.shared.hideFromScreenRecording ? .none : .readOnly
+  }
+
+  @available(*, unavailable)
+  required init?(coder: NSCoder) {
+    fatalError("init(coder:) has not been implemented")
+  }
+
+  // MARK: - Public Methods
+
+  func show() {
+    window?.makeKeyAndOrderFront(nil)
+    NSApp.activate(ignoringOtherApps: true)
+  }
+
+  /// Show Settings and navigate to the Speech Model panel under Dictation Mode
+  func showNavigatingToSpeechModel() {
+    show()
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+      NotificationCenter.default.post(
+        name: .settingsNavigateTo,
+        object: nil,
+        userInfo: ["panel": SettingsPanel.dictationSpeechModel.rawValue]
+      )
+    }
+  }
+
+  /// Show Settings and navigate to the AI Enhancement panel under Dictation Mode
+  func showNavigatingToAIEnhancement() {
+    show()
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+      NotificationCenter.default.post(
+        name: .settingsNavigateTo,
+        object: nil,
+        userInfo: ["panel": SettingsPanel.dictationAI.rawValue]
+      )
+    }
+  }
+}
