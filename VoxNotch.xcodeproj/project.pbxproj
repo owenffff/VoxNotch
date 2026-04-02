@@ -13,6 +13,7 @@
 		5A9233152F24FE4400DC619E /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 5A9232412F24CD3500DC619E /* GRDB */; };
 		5A9233162F24FE4400DC619E /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = 5A9232512F24CD3500DC619E /* FluidAudio */; };
 		5A9233602F250A0000DC619E /* AnyLanguageModel in Frameworks */ = {isa = PBXBuildFile; productRef = 5A9233612F250A0000DC619E /* AnyLanguageModel */; };
+		5AD0C001000000000000A003 /* DynamicNotchKit in Frameworks */ = {isa = PBXBuildFile; productRef = 5AD0C001000000000000A002 /* DynamicNotchKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -57,6 +58,7 @@
 				5A9233162F24FE4400DC619E /* FluidAudio in Frameworks */,
 				5A9233602F250A0000DC619E /* AnyLanguageModel in Frameworks */,
 				5A12F9E72F50297400E313C7 /* MLXAudio in Frameworks */,
+				5AD0C001000000000000A003 /* DynamicNotchKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -105,6 +107,7 @@
 				5A12F9E62F50297400E313C7 /* MLXAudio */,
 				5A12F9E82F50297400E313C7 /* MLXAudioCore */,
 				5A12F9EA2F50297400E313C7 /* MLXAudioSTT */,
+				5AD0C001000000000000A002 /* DynamicNotchKit */,
 			);
 			productName = VoxNotch;
 			productReference = 5A92320A2F24CD3300DC619E /* VoxNotch.app */;
@@ -139,6 +142,7 @@
 				5A9232502F24CD3500DC619E /* XCRemoteSwiftPackageReference "FluidAudio" */,
 				5A9233622F250A0000DC619E /* XCRemoteSwiftPackageReference "AnyLanguageModel" */,
 				5A12F9E52F50297400E313C7 /* XCRemoteSwiftPackageReference "mlx-audio-swift" */,
+				5AD0C001000000000000A001 /* XCRemoteSwiftPackageReference "DynamicNotchKit" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 5A92320B2F24CD3300DC619E /* Products */;
@@ -411,6 +415,14 @@
 				minimumVersion = 0.5.0;
 			};
 		};
+		5AD0C001000000000000A001 /* XCRemoteSwiftPackageReference "DynamicNotchKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/MrKai77/DynamicNotchKit";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -443,6 +455,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 5A9233622F250A0000DC619E /* XCRemoteSwiftPackageReference "AnyLanguageModel" */;
 			productName = AnyLanguageModel;
+		};
+		5AD0C001000000000000A002 /* DynamicNotchKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5AD0C001000000000000A001 /* XCRemoteSwiftPackageReference "DynamicNotchKit" */;
+			productName = DynamicNotchKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
