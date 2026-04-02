@@ -1,5 +1,5 @@
 {
-  "originHash" : "ed5fee51ee3a5bcb1e9d818bc644fc870c19a2b7ddaff516ec9a9195232fd3fe",
+  "originHash" : "9a8d6db602e34b5e5643f679c659a89f5e3baead94b2668bb3998a536f1dc4ba",
   "pins" : [
     {
       "identity" : "anylanguagemodel",
@@ -17,6 +17,15 @@
       "state" : {
         "revision" : "2fc4652fb4689eb24af10e55cabaa61d8ba774fd",
         "version" : "1.32.0"
+      }
+    },
+    {
+      "identity" : "dynamicnotchkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/MrKai77/DynamicNotchKit",
+      "state" : {
+        "revision" : "3c405930fd4d9f8498303683f32492c26d3a9b2b",
+        "version" : "1.0.0"
       }
     },
     {

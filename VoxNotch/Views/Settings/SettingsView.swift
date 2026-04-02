@@ -808,7 +808,7 @@ struct CustomModelCard: View {
       VStack(alignment: .leading, spacing: 2) {
         Text(model.displayName)
           .fontWeight(isSelected ? .semibold : .medium)
-        Text(model.repoID)
+        Text(model.hfRepoID)
           .font(.caption)
           .foregroundStyle(.secondary)
           .lineLimit(1)

@@ -99,9 +99,7 @@ final class NotchManager {
     private func expandIfNeeded() {
         guard let notch, let screen = NSScreen.main else { return }
         Task {
-            if notch.state == .hidden {
-                await notch.expand(on: screen)
-            }
+            await notch.expand(on: screen)
         }
     }
 
