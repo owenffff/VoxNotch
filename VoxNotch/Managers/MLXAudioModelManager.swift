@@ -1,0 +1,734 @@
+//
+//  MLXAudioModelManager.swift
+//  VoxNotch
+//
+//  Manages MLX Audio ASR model downloads and lifecycle
+//
+
+import Foundation
+import os.log
+
+#if canImport(MLXAudioSTT)
+import MLX
+import MLXAudioSTT
+#endif
+
+// MARK: - MLX Model Loader Class
+
+/// Which Swift class is responsible for loading a given MLX ASR model.
+/// Add a new case here when a new model family is introduced.
+enum MLXModelLoaderClass {
+  case glmASR    // GLMASRModel.fromPretrained
+  case qwen3ASR  // Qwen3ASRModel.fromPretrained
+}
+
+// MARK: - MLX Audio Model Version
+
+/// Available MLX Audio ASR model versions
+enum MLXAudioModelVersion: String, CaseIterable, Identifiable, Sendable {
+  case glmAsrNano = "mlx-community/GLM-ASR-Nano-2512-4bit"
+  case qwen3Asr = "mlx-community/Qwen3-ASR-1.7B-bf16"
+
+  var id: String { rawValue }
+
+  var displayName: String {
+    switch self {
+    case .glmAsrNano: "GLM-ASR-Nano (4-bit)"
+    case .qwen3Asr: "Qwen3-ASR 1.7B"
+    }
+  }
+
+  var estimatedSizeMB: Int {
+    switch self {
+    case .glmAsrNano: 400
+    case .qwen3Asr: 3400
+    }
+  }
+
+  var supportedLanguages: [String] {
+    /// Both models support multilingual ASR
+    ["en", "zh", "ja", "ko", "es", "fr", "de", "it", "pt", "ru", "ar"]
+  }
+
+  /// Folder name used for local storage
+  var folderName: String {
+    switch self {
+    case .glmAsrNano: "GLM-ASR-Nano-2512-4bit"
+    case .qwen3Asr: "Qwen3-ASR-1.7B-bf16"
+    }
+  }
+
+  /// Which Swift class should load this model version.
+  /// Update this when adding new model variants.
+  var loaderClass: MLXModelLoaderClass {
+    switch self {
+    case .glmAsrNano: .glmASR
+    case .qwen3Asr:   .qwen3ASR
+    }
+  }
+}
+
+// MARK: - MLX Audio Model State
+
+/// State of an MLX Audio model
+enum MLXAudioModelState: Equatable, Sendable {
+  case notDownloaded
+  case downloading(progress: Double, downloadedBytes: Int64, totalBytes: Int64, speedBytesPerSecond: Double)
+  case downloaded
+  case loading
+  case ready
+  case failed(message: String)
+
+  var isReady: Bool {
+    if case .ready = self { return true }
+    return false
+  }
+
+  var isDownloading: Bool {
+    if case .downloading = self { return true }
+    return false
+  }
+
+  var isDownloaded: Bool {
+    switch self {
+    case .downloaded, .ready, .loading: return true
+    default: return false
+    }
+  }
+}
+
+// MARK: - MLX Audio Model Manager
+
+/// Manages MLX Audio model downloads and lifecycle
+@Observable
+final class MLXAudioModelManager: @unchecked Sendable {
+
+  // MARK: - Singleton
+
+  static let shared = MLXAudioModelManager()
+
+  // MARK: - Properties
+
+  private let logger = Logger(subsystem: "com.voxnotch", category: "MLXAudioModelManager")
+
+  /// Current state of each built-in model version
+  private(set) var modelStates: [MLXAudioModelVersion: MLXAudioModelState] = [:]
+
+  /// Current state of each custom model (keyed by CustomSpeechModel.id)
+  private(set) var customModelStates: [String: MLXAudioModelState] = [:]
+
+  /// Currently loaded built-in model version (nil when a custom model is loaded)
+  private(set) var loadedVersion: MLXAudioModelVersion?
+
+  /// ID of the currently loaded custom model (nil when a built-in model is loaded)
+  private(set) var loadedCustomModelID: String?
+
+  /// Download progress (0.0 to 1.0)
+  private(set) var downloadProgress: Double = 0
+
+  /// Whether any model is ready
+  var isReady: Bool {
+    loadedVersion != nil || loadedCustomModelID != nil
+  }
+
+  /// Lock for thread safety
+  private let lock = NSLock()
+
+  #if canImport(MLXAudioSTT)
+  /// The loaded ASR model (shared with MLXAudioProvider; holds both built-in and custom models).
+  /// Typed as the protocol so GLMASRModel and Qwen3ASRModel can both be stored here.
+  private var loadedModel: (any STTGenerationModel)?
+  #endif
+
+  /// Observable state for the Source Separation aligner model
+  private(set) var alignerModelState: MLXAudioModelState = .notDownloaded
+
+  /// HuggingFace repo ID for the forced aligner model (not an ASR model)
+  private static let alignerRepoID = "mlx-community/Qwen3-ForcedAligner-0.6B-4bit"
+
+  /// Base directory for MLX Audio models
+  private var mlxModelsDirectory: URL {
+    let appSupport = FileManager.default.urls(
+      for: .applicationSupportDirectory, in: .userDomainMask
+    ).first!
+
+    return appSupport
+      .appendingPathComponent("VoxNotch", isDirectory: true)
+      .appendingPathComponent("MLXModels", isDirectory: true)
+  }
+
+  // MARK: - Initialization
+
+  private init() {
+    for version in MLXAudioModelVersion.allCases {
+      modelStates[version] = .notDownloaded
+    }
+    refreshAllModelStates()
+  }
+
+  // MARK: - Public Methods
+
+  /// Download and load a model version
+  /// - Parameter version: The model version to download and load
+  @discardableResult
+  func downloadAndLoad(version: MLXAudioModelVersion) async throws -> URL {
+    lock.lock()
+    let currentState = modelStates[version]
+    lock.unlock()
+
+    /// Already ready, return cached path
+    if currentState == .ready, loadedVersion == version {
+      return modelDirectory(for: version)
+    }
+
+    /// Already downloading, wait
+    if case .downloading = currentState {
+      logger.info("Model \(version.rawValue) already downloading, waiting...")
+      while true {
+        try await Task.sleep(nanoseconds: 500_000_000) // 500ms
+        lock.lock()
+        let state = modelStates[version]
+        lock.unlock()
+        if case .ready = state {
+          return modelDirectory(for: version)
+        }
+        if case .failed(let message) = state {
+          throw MLXAudioError.modelDownloadFailed(message)
+        }
+      }
+    }
+
+    /// Start download
+    await MainActor.run {
+      modelStates[version] = .downloading(progress: 0, downloadedBytes: 0, totalBytes: Int64(version.estimatedSizeMB) * 1_000_000, speedBytesPerSecond: 0)
+      downloadProgress = 0
+    }
+
+    logger.info("Starting download for MLX Audio model: \(version.rawValue)")
+
+    do {
+      #if canImport(MLXAudioSTT)
+      /// Poll directory size every 500ms to show real progress
+      let cacheURL = mlxAudioCacheURL(for: version)
+      let expectedBytes = Int64(version.estimatedSizeMB) * 1_000_000
+      let pollingTask = Task {
+        var lastBytes: Int64 = 0
+        var lastTime = Date()
+        
+        while !Task.isCancelled {
+          try? await Task.sleep(nanoseconds: 500_000_000)
+          let current = directorySize(at: cacheURL)
+          guard current > 0, expectedBytes > 0 else { continue }
+          
+          let now = Date()
+          let timeDiff = now.timeIntervalSince(lastTime)
+          let bytesDiff = current - lastBytes
+          let speed = timeDiff > 0 ? Double(bytesDiff) / timeDiff : 0
+          
+          lastBytes = current
+          lastTime = now
+          
+          let p = min(Double(current) / Double(expectedBytes), 0.95)
+          await MainActor.run {
+            if case .downloading = self.modelStates[version] {
+              self.modelStates[version] = .downloading(progress: p, downloadedBytes: current, totalBytes: expectedBytes, speedBytesPerSecond: speed)
+              self.downloadProgress = p
+            }
+          }
+        }
+      }
+      defer { pollingTask.cancel() }
+
+      /// Download and load the model using the correct class for each version.
+      /// Dispatch is driven by `version.loaderClass` so adding a new model variant only
+      /// requires updating the `loaderClass` property — no changes needed here.
+      // NOTE: Upstream bug in mlx-audio-swift (GLMASR.swift line 661): GLMASRModel calls
+      // model.update(verify: .all) even when config.useRope=true, causing a crash when
+      // embed_positions.weight is absent in newer GLM-ASR checkpoints. Track the upstream
+      // fix at https://github.com/Blaizzy/mlx-audio-swift.
+      let loaded: any STTGenerationModel
+      switch version.loaderClass {
+      case .glmASR:
+        loaded = try await GLMASRModel.fromPretrained(version.rawValue)
+      case .qwen3ASR:
+        // Qwen3ASRModel.fromPretrained calls generateTokenizerJSONIfMissing() internally.
+        loaded = try await Qwen3ASRModel.fromPretrained(version.rawValue)
+      }
+      warmupInference(loaded)
+      lock.lock()
+      loadedModel = loaded
+      loadedVersion = version
+      loadedCustomModelID = nil  // clear any previously loaded custom model
+      lock.unlock()
+      await MainActor.run {
+        modelStates[version] = .ready
+        downloadProgress = 1.0
+      }
+
+      logger.info("MLX Audio model \(version.rawValue) downloaded and loaded successfully")
+      return modelDirectory(for: version)
+      #else
+      throw MLXAudioError.modelDownloadFailed("MLXAudioSTT not available")
+      #endif
+
+    } catch {
+      let errorMessage = error.localizedDescription
+      await MainActor.run {
+        modelStates[version] = .failed(message: errorMessage)
+      }
+      logger.error("Failed to download MLX Audio model: \(errorMessage)")
+      throw MLXAudioError.modelDownloadFailed(errorMessage)
+    }
+  }
+
+  /// Get the model directory for a version
+  func modelDirectory(for version: MLXAudioModelVersion) -> URL {
+    mlxModelsDirectory.appendingPathComponent(version.folderName, isDirectory: true)
+  }
+
+  /// Check if a specific version is downloaded/loaded (memory or disk)
+  func isVersionDownloaded(_ version: MLXAudioModelVersion) -> Bool {
+    lock.lock()
+    let inMemory = loadedVersion == version
+    let stateDownloaded = modelStates[version]?.isDownloaded ?? false
+    lock.unlock()
+    return inMemory || stateDownloaded || isVersionOnDisk(version)
+  }
+
+  /// Check if a specific version is ready
+  func isVersionReady(_ version: MLXAudioModelVersion) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return modelStates[version]?.isReady ?? false
+  }
+
+  #if canImport(MLXAudioSTT)
+  /// Get the loaded ASR model (for use by MLXAudioProvider).
+  /// Returns whichever model class is currently in memory (GLMASRModel or Qwen3ASRModel).
+  func getLoadedModel() -> (any STTGenerationModel)? {
+    lock.lock()
+    defer { lock.unlock() }
+    return loadedModel
+  }
+  #endif
+
+  /// Unload current model to free memory
+  func unloadModel() {
+    lock.lock()
+    #if canImport(MLXAudioSTT)
+    loadedModel = nil
+    #endif
+    if let version = loadedVersion {
+      loadedVersion = nil
+      let customID = loadedCustomModelID
+      loadedCustomModelID = nil
+      lock.unlock()
+      Task { @MainActor in
+        modelStates[version] = .downloaded
+        if let customID {
+          customModelStates[customID] = .downloaded
+        }
+      }
+    } else if let customID = loadedCustomModelID {
+      loadedCustomModelID = nil
+      lock.unlock()
+      Task { @MainActor in
+        customModelStates[customID] = .downloaded
+      }
+    } else {
+      lock.unlock()
+    }
+    logger.info("Unloaded MLX Audio model")
+  }
+
+  // MARK: - Custom Model Support
+
+  /// Download and load a user-defined HuggingFace ASR model.
+  /// Uses HF Hub cache so repeated calls after first download are fast.
+  func downloadAndLoadCustom(model: CustomSpeechModel) async throws {
+    let id = model.id
+
+    lock.lock()
+    let alreadyLoaded = loadedCustomModelID == id
+    lock.unlock()
+
+    guard !alreadyLoaded else { return }
+
+    await MainActor.run {
+      customModelStates[id] = .downloading(progress: 0, downloadedBytes: 0, totalBytes: 3_400_000_000, speedBytesPerSecond: 0)
+    }
+
+    logger.info("Loading custom MLX Audio model: \(model.hfRepoID)")
+
+    do {
+      #if canImport(MLXAudioSTT)
+      /// Poll directory size every 500ms to show real progress
+      let cacheURL = mlxAudioCacheURL(repoID: model.hfRepoID)
+      let expectedBytes: Int64 = 3_400_000_000
+      let pollingTask = Task {
+        var lastBytes: Int64 = 0
+        var lastTime = Date()
+        
+        while !Task.isCancelled {
+          try? await Task.sleep(nanoseconds: 500_000_000)
+          let current = directorySize(at: cacheURL)
+          guard current > 0 else { continue }
+          
+          let now = Date()
+          let timeDiff = now.timeIntervalSince(lastTime)
+          let bytesDiff = current - lastBytes
+          let speed = timeDiff > 0 ? Double(bytesDiff) / timeDiff : 0
+          
+          lastBytes = current
+          lastTime = now
+          
+          await MainActor.run {
+            if case .downloading = self.customModelStates[id] {
+              self.customModelStates[id] = .downloading(progress: min(Double(current) / Double(expectedBytes), 0.95), downloadedBytes: current, totalBytes: expectedBytes, speedBytesPerSecond: speed)
+            }
+          }
+        }
+      }
+      defer { pollingTask.cancel() }
+
+      let loaderClass = inferLoaderClass(hfRepoID: model.hfRepoID)
+      let loaded: any STTGenerationModel
+      switch loaderClass {
+      case .glmASR:
+        loaded = try await GLMASRModel.fromPretrained(model.hfRepoID)
+      case .qwen3ASR:
+        loaded = try await Qwen3ASRModel.fromPretrained(model.hfRepoID)
+      }
+      warmupInference(loaded)
+
+      lock.lock()
+      loadedModel = loaded
+      loadedVersion = nil
+      loadedCustomModelID = id
+      lock.unlock()
+
+      await MainActor.run {
+        customModelStates[id] = .ready
+      }
+
+      // Persist download status in registry so it survives restarts
+      await MainActor.run {
+        CustomModelRegistry.shared.markDownloaded(id: id)
+      }
+
+      logger.info("Custom model loaded successfully: \(model.hfRepoID)")
+      #else
+      throw MLXAudioError.modelDownloadFailed("MLXAudioSTT not available in this build")
+      #endif
+
+    } catch {
+      let msg = error.localizedDescription
+      await MainActor.run {
+        customModelStates[id] = .failed(message: msg)
+      }
+      logger.error("Failed to load custom model \(model.hfRepoID): \(msg)")
+      throw MLXAudioError.modelDownloadFailed(msg)
+    }
+  }
+
+  /// Whether a custom model is loaded in memory and ready
+  func isCustomModelReady(id: String) -> Bool {
+    lock.lock()
+    defer { lock.unlock() }
+    return loadedCustomModelID == id || customModelStates[id]?.isReady == true
+  }
+
+  /// Unload a specific custom model from memory (keeps HF cache)
+  func unloadCustomModel(id: String) {
+    lock.lock()
+    if loadedCustomModelID == id {
+      loadedCustomModelID = nil
+      #if canImport(MLXAudioSTT)
+      loadedModel = nil
+      #endif
+    }
+    lock.unlock()
+
+    Task { @MainActor in
+      customModelStates[id] = .downloaded
+    }
+  }
+
+  /// Delete a custom model from the registry AND its HF Hub cache on disk
+  func deleteCustomModel(_ model: CustomSpeechModel) {
+    unloadCustomModel(id: model.id)
+
+    Task { @MainActor in
+      customModelStates.removeValue(forKey: model.id)
+    }
+
+    // Delete actual files from HF cache
+    let cacheURL = mlxAudioCacheURL(repoID: model.hfRepoID)
+    try? FileManager.default.removeItem(at: cacheURL)
+
+    CustomModelRegistry.shared.remove(id: model.id)
+    logger.info("Deleted custom model: \(model.hfRepoID)")
+  }
+
+  // MARK: - Metal Warmup
+
+  #if canImport(MLXAudioSTT)
+  /// Runs a silent inference to force Metal kernel compilation before the user
+  /// starts dictating. Discards the output. Takes ~2–6 s on first run;
+  /// subsequent calls return immediately because Metal caches pipelines.
+  private func warmupInference(_ model: any STTGenerationModel) {
+    // 1600 samples = 0.1 s of silence at 16 kHz — zeros() is a free function in MLX
+    let silence = zeros([1600], type: Float.self)
+    _ = model.generate(audio: silence)
+    logger.info("MLX Audio Metal warmup complete")
+  }
+  #endif
+
+  // MARK: - Model State Refresh
+
+  /// Refresh model states by checking both in-memory and on-disk presence.
+  func refreshAllModelStates() {
+    lock.lock()
+    let currentLoadedVersion = loadedVersion
+    lock.unlock()
+
+    for version in MLXAudioModelVersion.allCases {
+      /// Skip if currently downloading
+      if modelStates[version]?.isDownloading == true {
+        continue
+      }
+
+      if currentLoadedVersion == version {
+        modelStates[version] = .ready
+      } else if isVersionOnDisk(version) {
+        modelStates[version] = .downloaded
+      } else {
+        modelStates[version] = .notDownloaded
+      }
+    }
+
+    // Refresh aligner model state (skip if currently downloading)
+    if !alignerModelState.isDownloading {
+      alignerModelState = alignerModelExists() ? .downloaded : .notDownloaded
+    }
+  }
+
+  // MARK: - Delete Methods
+
+  /// Delete model files for a version from the actual MLX Audio cache
+  func deleteModel(version: MLXAudioModelVersion) throws {
+    if loadedVersion == version {
+      lock.lock()
+      #if canImport(MLXAudioSTT)
+      loadedModel = nil
+      #endif
+      loadedVersion = nil
+      lock.unlock()
+    }
+
+    let cacheDir = mlxAudioCacheURL(for: version)
+    if FileManager.default.fileExists(atPath: cacheDir.path) {
+      try FileManager.default.removeItem(at: cacheDir)
+    }
+
+    modelStates[version] = .notDownloaded
+    logger.info("Deleted MLX Audio model: \(version.rawValue)")
+  }
+
+  /// Delete all downloaded MLX Audio models
+  func deleteAllModels() throws {
+    for version in MLXAudioModelVersion.allCases {
+      try? deleteModel(version: version)
+    }
+    logger.info("Deleted all MLX Audio models")
+  }
+
+  /// Calculate total storage used by all downloaded models (uses actual MLX cache path)
+  func totalStorageUsedBytes() -> Int64 {
+    var total: Int64 = 0
+    for version in MLXAudioModelVersion.allCases {
+      total += directorySize(at: mlxAudioCacheURL(for: version))
+    }
+    return total
+  }
+
+  /// Infer the loader class for a HuggingFace repo by reading `model_type` from its
+  /// cached `config.json`. Falls back to `.glmASR` for unknown or missing configs
+  /// since the GLM-ASR family is the default custom-model target.
+  ///
+  /// Called by `downloadAndLoadCustom` and `MLXAudioProvider.ensureModelLoaded`.
+  func inferLoaderClass(hfRepoID: String) -> MLXModelLoaderClass {
+    let cacheURL = mlxAudioCacheURL(repoID: hfRepoID)
+      .appendingPathComponent("config.json")
+    guard
+      let data = try? Data(contentsOf: cacheURL),
+      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let modelType = json["model_type"] as? String
+    else { return .glmASR }
+
+    switch modelType {
+    case "qwen3_asr": return .qwen3ASR
+    default:          return .glmASR
+    }
+  }
+
+  /// Actual MLX Audio cache directory for a given model version.
+  /// GLMASRModel stores downloads at ~/.cache/huggingface/hub/mlx-audio/{org}_{model}/
+  private func mlxAudioCacheURL(for version: MLXAudioModelVersion) -> URL {
+    mlxAudioCacheURL(repoID: version.rawValue)
+  }
+
+  private func mlxAudioCacheURL(repoID: String) -> URL {
+    let repoFolder = repoID.replacingOccurrences(of: "/", with: "_")
+    return FileManager.default.homeDirectoryForCurrentUser
+      .appendingPathComponent(".cache/huggingface/hub/mlx-audio")
+      .appendingPathComponent(repoFolder)
+  }
+
+  /// Returns true if the model's cache directory exists and is non-empty on disk.
+  private func isVersionOnDisk(_ version: MLXAudioModelVersion) -> Bool {
+    let url = mlxAudioCacheURL(for: version)
+    guard FileManager.default.fileExists(atPath: url.path) else { return false }
+    let contents = try? FileManager.default.contentsOfDirectory(atPath: url.path)
+    return !(contents ?? []).isEmpty
+  }
+
+  // MARK: - Source Separation Aligner
+
+  /// Returns true if the forced aligner model's HF cache directory exists and is non-empty.
+  func alignerModelExists() -> Bool {
+    let url = mlxAudioCacheURL(repoID: Self.alignerRepoID)
+    guard FileManager.default.fileExists(atPath: url.path) else { return false }
+    let contents = try? FileManager.default.contentsOfDirectory(atPath: url.path)
+    return !(contents ?? []).isEmpty
+  }
+
+  /// Delete the forced aligner model from disk and reset state.
+  func deleteAlignerModel() {
+    let url = mlxAudioCacheURL(repoID: Self.alignerRepoID)
+    try? FileManager.default.removeItem(at: url)
+    alignerModelState = .notDownloaded
+  }
+
+  /// Download the Source Separation aligner model from HuggingFace Hub.
+  /// `Qwen3ForcedAlignerModel.fromPretrained` handles caching automatically;
+  /// subsequent calls return immediately if the model is already cached.
+  func downloadAlignerModel() async throws {
+    await MainActor.run {
+      alignerModelState = .downloading(
+        progress: 0,
+        downloadedBytes: 0,
+        totalBytes: 350_000_000,
+        speedBytesPerSecond: 0
+      )
+    }
+
+    #if canImport(MLXAudioSTT)
+    do {
+      // Poll progress while fromPretrained downloads
+      let cacheURL = mlxAudioCacheURL(repoID: Self.alignerRepoID)
+      let expectedBytes: Int64 = 350_000_000
+      let pollingTask = Task {
+        var lastBytes: Int64 = 0
+        var lastTime = Date()
+        while !Task.isCancelled {
+          try? await Task.sleep(nanoseconds: 500_000_000)
+          let current = directorySize(at: cacheURL)
+          guard current > 0 else { continue }
+          let now = Date()
+          let timeDiff = now.timeIntervalSince(lastTime)
+          let bytesDiff = current - lastBytes
+          let speed = timeDiff > 0 ? Double(bytesDiff) / timeDiff : 0
+          lastBytes = current
+          lastTime = now
+          let p = min(Double(current) / Double(expectedBytes), 0.95)
+          await MainActor.run {
+            if case .downloading = self.alignerModelState {
+              self.alignerModelState = .downloading(
+                progress: p,
+                downloadedBytes: current,
+                totalBytes: expectedBytes,
+                speedBytesPerSecond: speed
+              )
+            }
+          }
+        }
+      }
+      defer { pollingTask.cancel() }
+
+      _ = try await Qwen3ForcedAlignerModel.fromPretrained(Self.alignerRepoID)
+
+      await MainActor.run { alignerModelState = .downloaded }
+      logger.info("Source Separation aligner model downloaded successfully")
+
+    } catch {
+      let msg = error.localizedDescription
+      await MainActor.run { alignerModelState = .failed(message: msg) }
+      logger.error("Failed to download aligner model: \(msg)")
+      throw MLXAudioError.modelDownloadFailed(msg)
+    }
+    #else
+    await MainActor.run { alignerModelState = .failed(message: "MLXAudioSTT not available") }
+    throw MLXAudioError.modelDownloadFailed("MLXAudioSTT not available")
+    #endif
+  }
+
+  /// Calculate size of a directory in bytes
+  private func directorySize(at url: URL) -> Int64 {
+    let fileManager = FileManager.default
+    guard fileManager.fileExists(atPath: url.path) else { return 0 }
+
+    guard let enumerator = fileManager.enumerator(
+      at: url,
+      includingPropertiesForKeys: [.fileSizeKey],
+      options: [.skipsHiddenFiles]
+    ) else { return 0 }
+
+    var size: Int64 = 0
+    for case let fileURL as URL in enumerator {
+      if let fileSize = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize {
+        size += Int64(fileSize)
+      }
+    }
+    return size
+  }
+}
+
+// MARK: - MLX Audio Errors
+
+enum MLXAudioError: LocalizedError {
+  case modelNotLoaded
+  case modelDownloadFailed(String)
+  case transcriptionFailed(String)
+  case invalidAudioFormat
+  case audioLoadFailed(String)
+
+  var errorDescription: String? {
+    switch self {
+    case .modelNotLoaded:
+      return "MLX Audio model not loaded"
+    case .modelDownloadFailed(let message):
+      return "Model download failed: \(message)"
+    case .transcriptionFailed(let message):
+      return "Transcription failed: \(message)"
+    case .invalidAudioFormat:
+      return "Invalid audio format - expected 16kHz mono audio"
+    case .audioLoadFailed(let message):
+      return "Failed to load audio: \(message)"
+    }
+  }
+}
+
+// MARK: - State Mapping Helper
+
+/// Helper to convert MLXAudioModelState to FluidAudioModelState for UI compatibility
+func mapToFluidState(_ mlxState: MLXAudioModelState) -> FluidAudioModelState {
+  switch mlxState {
+  case .notDownloaded: return .notDownloaded
+  case .downloading(let p, let d, let t, let s): return .downloading(progress: p, downloadedBytes: d, totalBytes: t, speedBytesPerSecond: s)
+  case .downloaded: return .downloaded
+  case .loading: return .loading
+  case .ready: return .ready
+  case .failed(let msg): return .failed(message: msg)
+  }
+}
