@@ -1,0 +1,437 @@
+//
+//  TranscriptionService.swift
+//  VoxNotch
+//
+//  Transcription service with protocol-abstracted providers
+//
+
+import Foundation
+import os.log
+
+// MARK: - Transcription Provider Protocol
+
+/// Protocol for speech-to-text transcription providers
+protocol TranscriptionProvider: Sendable {
+  /// Provider name for display
+  var name: String { get }
+
+  /// Whether the provider is ready to transcribe
+  var isReady: Bool { get async }
+
+  /// Transcribe audio file to text
+  /// - Parameters:
+  ///   - audioURL: URL to the audio file (WAV format)
+  ///   - language: Optional language code (e.g., "en", "zh")
+  /// - Returns: Transcription result
+  func transcribe(audioURL: URL, language: String?) async throws -> TranscriptionResult
+}
+
+// MARK: - Transcription Result
+
+/// Result of a transcription operation
+struct TranscriptionResult: Sendable {
+  /// The transcribed text
+  let text: String
+
+  /// Confidence score (0.0 - 1.0), if available
+  let confidence: Float?
+
+  /// Duration of the audio in seconds
+  let audioDuration: TimeInterval
+
+  /// Time taken for transcription in seconds
+  let processingTime: TimeInterval
+
+  /// Provider that produced this result
+  let provider: String
+
+  /// Detected or specified language
+  let language: String?
+
+  /// Transcript segments with timing (if available)
+  let segments: [TranscriptSegment]?
+}
+
+/// A segment of transcribed text with timing information
+struct TranscriptSegment: Sendable, Identifiable {
+  let id: Int
+  let start: TimeInterval
+  let end: TimeInterval
+  let text: String
+}
+
+// MARK: - Transcription Error
+
+enum TranscriptionError: LocalizedError {
+    case providerNotReady
+    case fileNotFound
+    case invalidFormat
+    case fileTooSmall
+    case fileCorrupted
+    case audioTooShort
+    case noSpeechDetected
+    case transcriptionFailed(String)
+    case modelNotLoaded
+    case timeout
+
+    var errorDescription: String? {
+        switch self {
+        case .providerNotReady:
+            return "Speech model not ready"
+        case .fileNotFound:
+            return "Audio file not found"
+        case .invalidFormat:
+            return "Invalid audio format"
+        case .fileTooSmall:
+            return "Recording too small"
+        case .fileCorrupted:
+            return "Audio file corrupted"
+        case .audioTooShort:
+            return "Recording too short"
+        case .noSpeechDetected:
+            return "No speech detected"
+        case .transcriptionFailed(let message):
+            // Shorten long error messages for UI display
+            if message.contains("unallocated locales") {
+                return "Speech engine error (beta)"
+            }
+            return message.count > 30 ? "Transcription failed" : message
+        case .modelNotLoaded:
+            return "Speech model not downloaded. Open Settings to download."
+        case .timeout:
+            return "Download timed out"
+        }
+    }
+
+    /// User-friendly recovery suggestion
+    var recoverySuggestion: String? {
+        switch self {
+        case .audioTooShort, .noSpeechDetected:
+            return "Try speaking louder or longer"
+        case .modelNotLoaded, .providerNotReady:
+            return "Open Settings to download the required model"
+        case .fileCorrupted, .invalidFormat, .fileTooSmall:
+            return "Please try recording again"
+        case .timeout:
+            return "Check your network connection"
+        case .transcriptionFailed(let message):
+            if message.contains("unallocated locales") {
+                return "Try again - known beta issue"
+            }
+            return "Please try again"
+        default:
+            return nil
+        }
+    }
+}
+
+// MARK: - Transcription Service
+
+/// Main service for managing transcription using configurable ASR providers
+final class TranscriptionService: @unchecked Sendable {
+
+  // MARK: - Properties
+
+  static let shared = TranscriptionService()
+
+  private let logger = Logger(subsystem: "com.voxnotch", category: "TranscriptionService")
+  private let settings = SettingsManager.shared
+  private let fluidModelManager = FluidAudioModelManager.shared
+  private let mlxModelManager = MLXAudioModelManager.shared
+
+  /// Primary transcription provider (FluidAudio or MLXAudio)
+  private var primaryProvider: TranscriptionProvider?
+
+  /// Whether the service is ready
+  var isReady: Bool {
+    get async {
+      if let primary = primaryProvider {
+        return await primary.isReady
+      }
+      let engine = ASREngine(rawValue: settings.asrEngine) ?? .fluidAudio
+      switch engine {
+      case .fluidAudio: return fluidModelManager.isReady
+      case .mlxAudio: return mlxModelManager.isReady
+      }
+    }
+  }
+
+  /// Current provider name for display
+  var currentProviderName: String {
+    primaryProvider?.name ?? "FluidAudio"
+  }
+
+  /// Whether models are currently downloading
+  var isDownloadingModel: Bool {
+    let engine = ASREngine(rawValue: settings.asrEngine) ?? .fluidAudio
+    switch engine {
+    case .fluidAudio:
+      for (_, state) in fluidModelManager.modelStates {
+        if case .downloading = state { return true }
+      }
+    case .mlxAudio:
+      for (_, state) in mlxModelManager.modelStates {
+        if case .downloading = state { return true }
+      }
+      // Also check custom model download states
+      for (_, state) in mlxModelManager.customModelStates {
+        if case .downloading = state { return true }
+      }
+    }
+    return false
+  }
+
+  // MARK: - Initialization
+
+  private init() {
+    configureProviders()
+  }
+
+  // MARK: - Configuration
+
+  /// Configure transcription providers based on selected ASR engine
+  func configureProviders() {
+    let engine = ASREngine(rawValue: settings.asrEngine) ?? .fluidAudio
+
+    switch engine {
+    case .fluidAudio:
+      primaryProvider = FluidAudioProvider()
+      logger.info("Primary provider: FluidAudio")
+
+    case .mlxAudio:
+      primaryProvider = MLXAudioProvider()
+      logger.info("Primary provider: MLX Audio")
+    }
+  }
+
+  /// Reconfigure providers (call after settings change)
+  func reconfigure() {
+    primaryProvider = nil
+    configureProviders()
+  }
+
+  // MARK: - Public Methods
+
+  /// Set the primary transcription provider
+  func setPrimaryProvider(_ provider: TranscriptionProvider) {
+    self.primaryProvider = provider
+    logger.info("Primary provider set: \(provider.name)")
+  }
+
+  /// Preload the model in the background to reduce cold start time.
+  /// This is a non-throwing, best-effort operation.
+  func preloadModel() {
+    Task {
+      do {
+        try await ensureModelReady()
+      } catch {
+        logger.error("Failed to preload model: \(error.localizedDescription)")
+      }
+    }
+  }
+
+  /// Check if the model is downloaded and load it if so.
+  /// Does NOT auto-download - throws if model not available.
+  func ensureModelReady() async throws {
+    let speechModelID = settings.speechModel
+    let (builtinModel, customModel) = SpeechModel.resolve(speechModelID)
+
+    // Handle custom user-defined models
+    if let custom = customModel {
+      if !mlxModelManager.isCustomModelReady(id: custom.id) {
+        // fromPretrained uses HF Hub cache; fast if already downloaded
+        try await mlxModelManager.downloadAndLoadCustom(model: custom)
+        logger.info("Custom MLX Audio model ready: \(custom.hfRepoID)")
+      }
+      return
+    }
+
+    let engine = ASREngine(rawValue: settings.asrEngine) ?? .fluidAudio
+
+    switch engine {
+    case .fluidAudio:
+      // Prefer explicitly selected model version; fall back to language-based recommendation
+      let language = settings.transcriptionLanguage
+      let version = builtinModel?.fluidAudioVersion
+        ?? FluidAudioModelVersion(rawValue: settings.fluidAudioModel)
+        ?? fluidModelManager.recommendedVersion(for: language == "auto" ? "en" : language)
+
+      guard fluidModelManager.isVersionDownloaded(version) else {
+        throw TranscriptionError.modelNotLoaded
+      }
+
+      if !fluidModelManager.isVersionReady(version) {
+        _ = try await fluidModelManager.downloadAndLoad(version: version)
+        logger.info("FluidAudio model loaded from cache")
+      }
+
+    case .mlxAudio:
+      guard let version = builtinModel?.mlxAudioVersion
+              ?? MLXAudioModelVersion(rawValue: settings.mlxAudioModel)
+      else {
+        throw TranscriptionError.modelNotLoaded
+      }
+
+      guard mlxModelManager.isVersionDownloaded(version) else {
+        throw TranscriptionError.modelNotLoaded
+      }
+
+      if !mlxModelManager.isVersionReady(version) {
+        _ = try await mlxModelManager.downloadAndLoad(version: version)
+        logger.info("MLX Audio model loaded from cache")
+      }
+    }
+  }
+
+  /// Load a specific FluidAudio model version
+  func loadFluidAudioModel(version: FluidAudioModelVersion) async throws {
+    _ = try await fluidModelManager.downloadAndLoad(version: version)
+
+    // Reinitialize provider with new model
+    if let provider = primaryProvider as? FluidAudioProvider {
+      try await provider.reinitialize()
+    }
+  }
+
+  /// Load a specific MLX Audio model version
+  func loadMLXAudioModel(version: MLXAudioModelVersion) async throws {
+    _ = try await mlxModelManager.downloadAndLoad(version: version)
+
+    // Reinitialize provider with new model
+    if let provider = primaryProvider as? MLXAudioProvider {
+      try await provider.reinitialize()
+    }
+  }
+
+  /// Transcribe an audio file
+  /// - Parameters:
+  ///   - audioURL: URL to the audio file
+  ///   - language: Optional language code (e.g., "en", "zh")
+  /// - Returns: Transcription result
+  func transcribe(audioURL: URL, language: String? = nil) async throws -> TranscriptionResult {
+    // Validate audio file before transcription
+    try validateAudioFile(at: audioURL)
+
+    let effectiveLanguage = language ?? (settings.transcriptionLanguage == "auto" ? nil : settings.transcriptionLanguage)
+
+    // Ensure we have a provider
+    guard let provider = primaryProvider else {
+      throw TranscriptionError.providerNotReady
+    }
+
+    // Transcribe using FluidAudio
+    do {
+      let result = try await provider.transcribe(audioURL: audioURL, language: effectiveLanguage)
+      return processResult(result)
+    } catch {
+      logger.error("Transcription failed: \(error.localizedDescription)")
+      throw error
+    }
+  }
+
+  // MARK: - Private Methods
+
+  private func processResult(_ result: TranscriptionResult) -> TranscriptionResult {
+    /// Handle empty/noise-only transcriptions gracefully
+    if result.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      return TranscriptionResult(
+        text: "",
+        confidence: result.confidence,
+        audioDuration: result.audioDuration,
+        processingTime: result.processingTime,
+        provider: result.provider,
+        language: result.language,
+        segments: result.segments
+      )
+    }
+    return result
+  }
+
+  /// Minimum file size for valid audio (header + some samples)
+  private let minimumFileSize: Int = 1000
+
+  /// Validate audio file before transcription
+  private func validateAudioFile(at url: URL) throws {
+    /// Check file exists
+    guard FileManager.default.fileExists(atPath: url.path) else {
+      throw TranscriptionError.fileNotFound
+    }
+
+    /// Check file size
+    guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+          let fileSize = attributes[.size] as? Int
+    else {
+      throw TranscriptionError.fileCorrupted
+    }
+
+    if fileSize < minimumFileSize {
+      throw TranscriptionError.fileTooSmall
+    }
+
+    /// Validate WAV header (first 4 bytes should be "RIFF")
+    if url.pathExtension.lowercased() == "wav" {
+      guard let fileHandle = try? FileHandle(forReadingFrom: url) else {
+        throw TranscriptionError.fileCorrupted
+      }
+
+      defer { try? fileHandle.close() }
+
+      guard let headerData = try? fileHandle.read(upToCount: 4),
+            headerData.count == 4
+      else {
+        throw TranscriptionError.fileCorrupted
+      }
+
+      let headerString = String(data: headerData, encoding: .ascii)
+      if headerString != "RIFF" {
+        throw TranscriptionError.invalidFormat
+      }
+    }
+  }
+}
+
+// MARK: - Mock Provider (for development/testing)
+
+/// Mock transcription provider for testing without ML dependencies
+final class MockTranscriptionProvider: TranscriptionProvider, @unchecked Sendable {
+
+  let name = "Mock"
+
+  var isReady: Bool {
+    get async { true }
+  }
+
+  /// Simulated transcription delay
+  private let simulatedDelay: TimeInterval = 0.5
+
+  /// Predefined mock responses
+  private let mockResponses: [String] = [
+    "This is a test transcription.",
+    "Hello world, testing voice dictation.",
+    "The quick brown fox jumps over the lazy dog."
+  ]
+
+  private var responseIndex = 0
+
+  func transcribe(audioURL: URL, language: String?) async throws -> TranscriptionResult {
+    let startTime = Date()
+
+    /// Simulate processing time
+    try await Task.sleep(nanoseconds: UInt64(simulatedDelay * 1_000_000_000))
+
+    /// Get mock response
+    let text = mockResponses[responseIndex % mockResponses.count]
+
+    let processingTime = Date().timeIntervalSince(startTime)
+
+    return TranscriptionResult(
+      text: text,
+      confidence: 0.95,
+      audioDuration: 2.0,
+      processingTime: processingTime,
+      provider: name,
+      language: language,
+      segments: nil
+    )
+  }
+}
