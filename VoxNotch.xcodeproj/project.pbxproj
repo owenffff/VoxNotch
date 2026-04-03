@@ -16,27 +16,8 @@
 		5AD0C001000000000000A003 /* DynamicNotchKit in Frameworks */ = {isa = PBXBuildFile; productRef = 5AD0C001000000000000A002 /* DynamicNotchKit */; };
 /* End PBXBuildFile section */
 
-/* Begin PBXContainerItemProxy section */
-		5A9232182F24CD3500DC619E /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 5A9232022F24CD3300DC619E /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 5A9232092F24CD3300DC619E;
-			remoteInfo = VoxNotch;
-		};
-		5A9232222F24CD3500DC619E /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 5A9232022F24CD3300DC619E /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 5A9232092F24CD3300DC619E;
-			remoteInfo = VoxNotch;
-		};
-/* End PBXContainerItemProxy section */
-
 /* Begin PBXFileReference section */
 		5A92320A2F24CD3300DC619E /* VoxNotch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VoxNotch.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		5A9232172F24CD3500DC619E /* VoxNotchTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VoxNotchTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		5A9232212F24CD3500DC619E /* VoxNotchUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VoxNotchUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
