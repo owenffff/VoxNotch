@@ -292,7 +292,6 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
-
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "VoxNotch needs microphone access for voice dictation";
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
@@ -324,7 +323,6 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
-
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "VoxNotch needs microphone access for voice dictation";
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";

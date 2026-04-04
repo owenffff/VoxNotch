@@ -50,6 +50,7 @@ final class SettingsManager {
     static let removeFillerWords = "removeFillerWords"
     static let applyITN = "applyITN"
     static let useClipboardForOutput = "useClipboardForOutput"
+    static let customDictionaryEnabled = "customDictionaryEnabled"
 
     /// LLM
     static let enablePostProcessing = "enablePostProcessing"
@@ -180,6 +181,13 @@ final class SettingsManager {
 
   var applyITN: Bool {
     didSet { save(applyITN, forKey: Keys.applyITN) }
+  }
+
+  var customDictionaryEnabled: Bool {
+    didSet {
+      save(customDictionaryEnabled, forKey: Keys.customDictionaryEnabled)
+      DictionaryRegistry.shared.syncToNemo()
+    }
   }
 
   // MARK: - LLM Settings
@@ -380,6 +388,7 @@ final class SettingsManager {
     self.removeFillerWords = defaults.object(forKey: Keys.removeFillerWords) as? Bool ?? false
     self.applyITN = defaults.object(forKey: Keys.applyITN) as? Bool ?? true
     self.useClipboardForOutput = defaults.object(forKey: Keys.useClipboardForOutput) as? Bool ?? true
+    self.customDictionaryEnabled = defaults.object(forKey: Keys.customDictionaryEnabled) as? Bool ?? true
 
     /// LLM
     self.llmProvider = defaults.string(forKey: Keys.llmProvider) ?? "local"
@@ -462,7 +471,7 @@ final class SettingsManager {
       Keys.hotkeyModifiers, Keys.hotkeyModifierFlags, Keys.holdToRecord, Keys.minimumRecordingDuration,
       Keys.selectedModel, Keys.transcriptionLanguage,
       Keys.addSpaceAfterTranscription, Keys.removeFillerWords, Keys.applyITN,
-      Keys.restoreClipboard, Keys.useClipboardForOutput,
+      Keys.restoreClipboard, Keys.useClipboardForOutput, Keys.customDictionaryEnabled,
       Keys.llmProvider, Keys.llmEndpointURL, Keys.llmModel,
       Keys.promptTemplate, Keys.customPrompt,
       Keys.openAIBaseURL, Keys.sttProvider,
@@ -491,6 +500,7 @@ final class SettingsManager {
     removeFillerWords = false
     applyITN = true
     useClipboardForOutput = true
+    customDictionaryEnabled = true
     llmProvider = "local"
     llmEndpointURL = "http://localhost:11434"
     llmModel = "llama3.2"

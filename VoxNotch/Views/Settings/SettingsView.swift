@@ -1145,6 +1145,8 @@ struct ModelBadge: View {
 struct DictationOutputTab: View {
 
   @Bindable private var settings = SettingsManager.shared
+  @State private var registry = DictionaryRegistry.shared
+  @State private var showAddEntrySheet = false
 
   var body: some View {
     Form {
@@ -1163,10 +1165,66 @@ struct DictationOutputTab: View {
       } header: {
         Text("Text Output")
       }
+
+      // MARK: Custom Dictionary
+      Section {
+        Toggle("Custom dictionary", isOn: $settings.customDictionaryEnabled)
+          .help("Replace specific spoken phrases with custom written forms during transcription")
+
+        if settings.customDictionaryEnabled {
+          if registry.entries.isEmpty {
+            Text("Add words and phrases you use often so VoxNotch always gets them right.")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+              .italic()
+          } else {
+            ForEach(registry.entries) { entry in
+              HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                  Text(entry.writtenForm)
+                    .font(.body)
+                  Text("\"\(entry.spokenForm)\"")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button {
+                  registry.remove(id: entry.id)
+                } label: {
+                  Image(systemName: "trash")
+                    .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Remove this dictionary entry")
+              }
+            }
+          }
+
+          Button {
+            showAddEntrySheet = true
+          } label: {
+            Label("Add Entry", systemImage: "plus")
+              .font(.caption)
+          }
+          .buttonStyle(.borderless)
+        }
+      } header: {
+        Text("Custom Dictionary")
+      } footer: {
+        if settings.customDictionaryEnabled && !registry.entries.isEmpty && !settings.applyITN {
+          Text("Number & currency normalization will also apply when custom dictionary is active.")
+            .font(.caption)
+        }
+      }
     }
     .formStyle(.grouped)
     .scrollIndicators(.never)
     .padding()
+    .sheet(isPresented: $showAddEntrySheet) {
+      DictionaryEntrySheet { entry in
+        registry.add(entry)
+      }
+    }
   }
 }
 

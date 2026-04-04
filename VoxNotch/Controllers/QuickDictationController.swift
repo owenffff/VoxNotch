@@ -404,7 +404,13 @@ final class QuickDictationController {
                 let text: String = {
                   let raw = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
                   let filtered = SettingsManager.shared.removeFillerWords ? FillerWordFilter.clean(raw) : raw
-                  return SettingsManager.shared.applyITN ? NemoTextProcessing.normalizeSentence(filtered) : filtered
+                  let hasCustomRules = SettingsManager.shared.customDictionaryEnabled
+                      && !DictionaryRegistry.shared.entries.isEmpty
+                  if SettingsManager.shared.applyITN || hasCustomRules {
+                      return NemoTextProcessing.normalizeSentence(filtered)
+                  } else {
+                      return filtered
+                  }
                 }()
                 print("QuickDictationController: Transcribed text: '\(text)'")
 
