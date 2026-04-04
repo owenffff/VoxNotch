@@ -501,7 +501,11 @@ final class QuickDictationController {
         if hasFocusedInput {
             do {
                 try await textOutputManager.output(text)
-                print("QuickDictationController: Text output succeeded")
+                // Also leave text on clipboard as a safety net for whitelisted apps
+                // where we can't verify the paste actually landed (e.g. Electron apps
+                // that don't expose AX focused element info).
+                textOutputManager.copyToClipboardOnly(text)
+                print("QuickDictationController: Text output succeeded (also on clipboard)")
                 await MainActor.run {
                     NotchManager.shared.showSuccess()
                     updateState(.idle)

@@ -166,7 +166,7 @@ final class TextOutputManager {
         return hasFocusedTextInput(for: NSWorkspace.shared.frontmostApplication)
     }
 
-    /// Returns true if the given application has a focused text input element.
+    /// Returns true if the frontmost application has a focused text input element.
     /// Uses the Accessibility API to query the focused UI element's role.
     /// When `app` is nil, falls back to the current frontmost application.
     func hasFocusedTextInput(for app: NSRunningApplication?) -> Bool {
@@ -176,7 +176,7 @@ final class TextOutputManager {
 
         // For certain apps like Chrome, Arc, or Electron apps, the accessibility tree
         // might not expose the exact text field role, or it might be an AXWebArea.
-        // We can whitelist these apps to always attempt text output.
+        // We whitelist these apps to always attempt text output.
         if let bundleID = targetApp.bundleIdentifier {
             let whitelistedPrefixes = [
                 "com.google.Chrome",
