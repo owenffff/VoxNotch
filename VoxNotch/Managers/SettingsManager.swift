@@ -30,7 +30,6 @@ final class SettingsManager {
 
     /// General
     static let launchAtLogin = "launchAtLogin"
-    static let widgetAppearance = "widgetAppearance"
     static let useEscToCancel = "useEscToCancel"
     static let hideFromScreenRecording = "hideFromScreenRecording"
 
@@ -109,11 +108,6 @@ final class SettingsManager {
 
   var launchAtLogin: Bool {
     didSet { save(launchAtLogin, forKey: Keys.launchAtLogin) }
-  }
-
-  /// Widget color scheme override: "system" | "light" | "dark"
-  var widgetAppearance: String {
-    didSet { save(widgetAppearance, forKey: Keys.widgetAppearance) }
   }
 
   var useEscToCancel: Bool {
@@ -368,7 +362,6 @@ final class SettingsManager {
     /// General
     self.hideFromScreenRecording = defaults.object(forKey: Keys.hideFromScreenRecording) as? Bool ?? true
     self.launchAtLogin = defaults.bool(forKey: Keys.launchAtLogin)
-    self.widgetAppearance = defaults.string(forKey: Keys.widgetAppearance) ?? "system"
     self.useEscToCancel = defaults.object(forKey: Keys.useEscToCancel) as? Bool ?? false
 
     /// Hotkey

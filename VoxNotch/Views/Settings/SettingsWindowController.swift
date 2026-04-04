@@ -62,26 +62,26 @@ final class SettingsWindowController: NSWindowController {
     NSApp.activate(ignoringOtherApps: true)
   }
 
-  /// Show Settings and navigate to the Speech Model panel under Dictation Mode
+  /// Show Settings and navigate to the Speech Model panel
   func showNavigatingToSpeechModel() {
     show()
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
       NotificationCenter.default.post(
         name: .settingsNavigateTo,
         object: nil,
-        userInfo: ["panel": SettingsPanel.dictationSpeechModel.rawValue]
+        userInfo: ["panel": SettingsPanel.speechModel.rawValue]
       )
     }
   }
 
-  /// Show Settings and navigate to the AI Enhancement panel under Dictation Mode
+  /// Show Settings and navigate to the AI Enhancement panel
   func showNavigatingToAIEnhancement() {
     show()
     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
       NotificationCenter.default.post(
         name: .settingsNavigateTo,
         object: nil,
-        userInfo: ["panel": SettingsPanel.dictationAI.rawValue]
+        userInfo: ["panel": SettingsPanel.ai.rawValue]
       )
     }
   }

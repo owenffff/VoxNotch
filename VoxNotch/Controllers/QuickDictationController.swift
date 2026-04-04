@@ -617,7 +617,7 @@ final class QuickDictationController {
 
         if index >= candidates.count {
             // "More Tones..." — open Settings (instant dismiss, user is navigating away)
-            appState.navigateToSettingsPanel = SettingsPanel.dictationAI.rawValue
+            appState.navigateToSettingsPanel = SettingsPanel.ai.rawValue
             SettingsWindowController.shared.showNavigatingToAIEnhancement()
             updateState(.idle)
             NotchManager.shared.hide()
@@ -690,7 +690,7 @@ final class QuickDictationController {
 
         if index >= candidates.count {
             // "More Models..." — open Settings (instant dismiss, user is navigating away)
-            appState.navigateToSettingsPanel = SettingsPanel.dictationSpeechModel.rawValue
+            appState.navigateToSettingsPanel = SettingsPanel.speechModel.rawValue
             SettingsWindowController.shared.showNavigatingToSpeechModel()
             updateState(.idle)
             NotchManager.shared.hide()

@@ -14,37 +14,31 @@ import CoreAudio
 
 /// Settings panel identifiers organized by mode
 enum SettingsPanel: String, CaseIterable, Identifiable {
-  /// General
+  case recording
+  case speechModel
+  case output
+  case ai
   case general
-  case audioSources
-
-  /// Dictation Mode
-  case dictationHotkey
-  case dictationSpeechModel
-  case dictationOutput
-  case dictationAI
 
   var id: String { rawValue }
 
   var title: String {
     switch self {
+    case .recording: "Recording"
+    case .speechModel: "Speech Model"
+    case .output: "Output"
+    case .ai: "Tones"
     case .general: "General"
-    case .audioSources: "Audio Sources"
-    case .dictationHotkey: "Hotkey"
-    case .dictationSpeechModel: "Speech Model"
-    case .dictationOutput: "Output"
-    case .dictationAI: "Tones"
     }
   }
 
   var icon: String {
     switch self {
+    case .recording: "waveform.circle"
+    case .speechModel: "waveform"
+    case .output: "text.cursor"
+    case .ai: "sparkles"
     case .general: "gear"
-    case .audioSources: "mic.and.signal.meter"
-    case .dictationHotkey: "keyboard"
-    case .dictationSpeechModel: "waveform"
-    case .dictationOutput: "text.cursor"
-    case .dictationAI: "sparkles"
     }
   }
 }
@@ -54,26 +48,21 @@ enum SettingsPanel: String, CaseIterable, Identifiable {
 /// Main settings view with mode-based sidebar navigation
 struct SettingsView: View {
 
-  @State private var selectedPanel: SettingsPanel = .general
+  @State private var selectedPanel: SettingsPanel = .recording
 
   var body: some View {
     HStack(spacing: 0) {
       List(selection: $selectedPanel) {
+        Label("Recording", systemImage: "waveform.circle")
+          .tag(SettingsPanel.recording)
+        Label("Speech Model", systemImage: "waveform")
+          .tag(SettingsPanel.speechModel)
+        Label("Output", systemImage: "text.cursor")
+          .tag(SettingsPanel.output)
+        Label("Tones", systemImage: "sparkles")
+          .tag(SettingsPanel.ai)
         Label("General", systemImage: "gear")
           .tag(SettingsPanel.general)
-        Label("Audio Sources", systemImage: "mic.and.signal.meter")
-          .tag(SettingsPanel.audioSources)
-
-        Section("Dictation Mode") {
-          Label("Hotkey", systemImage: "keyboard")
-            .tag(SettingsPanel.dictationHotkey)
-          Label("Speech Model", systemImage: "waveform")
-            .tag(SettingsPanel.dictationSpeechModel)
-          Label("Output", systemImage: "text.cursor")
-            .tag(SettingsPanel.dictationOutput)
-          Label("Tones", systemImage: "sparkles")
-            .tag(SettingsPanel.dictationAI)
-        }
       }
       .listStyle(.sidebar)
       .frame(width: 200)
@@ -106,23 +95,20 @@ struct SettingsView: View {
   @ViewBuilder
   private var detailView: some View {
     switch selectedPanel {
-    case .general:
-      GeneralSettingsTab()
+    case .recording:
+      RecordingTab()
 
-    case .audioSources:
-      AudioSourcesTab()
-
-    case .dictationHotkey:
-      DictationHotkeyTab()
-
-    case .dictationSpeechModel:
+    case .speechModel:
       DictationSpeechModelTab()
 
-    case .dictationOutput:
+    case .output:
       DictationOutputTab()
 
-    case .dictationAI:
+    case .ai:
       DictationAITab()
+
+    case .general:
+      GeneralSettingsTab()
     }
   }
 }
@@ -171,21 +157,8 @@ struct GeneralSettingsTab: View {
             .font(.caption)
             .foregroundStyle(.red)
         }
-
-        Toggle("Use Escape to cancel recording", isOn: $settings.useEscToCancel)
-          .help("Press Escape to cancel an active recording")
       } header: {
         Text("Startup")
-      }
-
-      Section {
-        AppearancePicker(selection: $settings.widgetAppearance)
-          .padding(.vertical, 4)
-      } header: {
-        Text("Widget Appearance")
-      } footer: {
-        Text("Controls the floating widget's color scheme. \"Auto\" follows your system setting.")
-          .font(.caption)
       }
 
       Section {
@@ -261,167 +234,25 @@ struct GeneralSettingsTab: View {
   }
 }
 
-// MARK: - Formatting Helpers
+// MARK: - Recording
 
-private func formatBytes(_ bytes: Int64) -> String {
-  if bytes == 0 { return "None" }
-  let formatter = ByteCountFormatter()
-  formatter.countStyle = .file
-  return formatter.string(fromByteCount: bytes)
-}
-
-private func formatSpeed(_ bytesPerSecond: Double) -> String {
-  if bytesPerSecond == 0 { return "0 KB/s" }
-  let formatter = ByteCountFormatter()
-  formatter.countStyle = .file
-  return formatter.string(fromByteCount: Int64(bytesPerSecond)) + "/s"
-}
-
-// MARK: - Widget Appearance Picker
-
-private struct AppearancePicker: View {
-  @Binding var selection: String
-
-  private struct Option: Identifiable {
-    let id: String
-    let label: String
-    let scheme: ColorScheme?
-  }
-
-  private let options: [Option] = [
-    Option(id: "system", label: "Auto",  scheme: nil),
-    Option(id: "light",  label: "Light", scheme: .light),
-    Option(id: "dark",   label: "Dark",  scheme: .dark),
-  ]
-
-  var body: some View {
-    HStack(spacing: 16) {
-      ForEach(options) { option in
-        AppearanceCard(
-          label: option.label,
-          scheme: option.scheme,
-          isSelected: selection == option.id
-        ) {
-          selection = option.id
-        }
-      }
-      Spacer()
-    }
-  }
-}
-
-private struct AppearanceCard: View {
-  let label: String
-  let scheme: ColorScheme?
-  let isSelected: Bool
-  let action: () -> Void
-
-  var body: some View {
-    Button(action: action) {
-      VStack(spacing: 6) {
-        MiniWidgetPreview(scheme: scheme)
-          .overlay {
-            RoundedRectangle(cornerRadius: 8)
-              .strokeBorder(
-                isSelected ? Color.accentColor : Color.secondary.opacity(0.25),
-                lineWidth: isSelected ? 2 : 1
-              )
-          }
-
-        HStack(spacing: 3) {
-          if isSelected {
-            Image(systemName: "checkmark.circle.fill")
-              .font(.system(size: 10))
-              .foregroundStyle(Color.accentColor)
-          }
-          Text(label)
-            .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
-            .foregroundStyle(isSelected ? .primary : .secondary)
-        }
-      }
-    }
-    .buttonStyle(.plain)
-    .animation(.easeInOut(duration: 0.15), value: isSelected)
-  }
-}
-
-/// A 120x68 pt card simulating the floating widget on a desktop background.
-private struct MiniWidgetPreview: View {
-  let scheme: ColorScheme?
-
-  var body: some View {
-    ZStack {
-      background
-      pill
-    }
-    .frame(width: 120, height: 68)
-    .clipShape(RoundedRectangle(cornerRadius: 8))
-  }
-
-  // MARK: Desktop background
-
-  @ViewBuilder
-  private var background: some View {
-    if scheme == nil {
-      // Auto: left half light, right half dark
-      HStack(spacing: 0) {
-        LinearGradient(
-          colors: [Color(white: 0.76), Color(white: 0.82)],
-          startPoint: .topLeading, endPoint: .bottomTrailing
-        )
-        LinearGradient(
-          colors: [Color(white: 0.17), Color(white: 0.11)],
-          startPoint: .topLeading, endPoint: .bottomTrailing
-        )
-      }
-    } else if scheme == .light {
-      LinearGradient(
-        colors: [Color(white: 0.76), Color(white: 0.82)],
-        startPoint: .topLeading, endPoint: .bottomTrailing
-      )
-    } else {
-      LinearGradient(
-        colors: [Color(white: 0.17), Color(white: 0.11)],
-        startPoint: .topLeading, endPoint: .bottomTrailing
-      )
-    }
-  }
-
-  // MARK: Pill
-
-  @ViewBuilder
-  private var pill: some View {
-    if scheme == nil {
-      // Auto: one light pill on the left, one dark pill on the right
-      HStack(spacing: 0) {
-        pillShape(dark: false).frame(maxWidth: .infinity)
-        pillShape(dark: true).frame(maxWidth: .infinity)
-      }
-      .frame(height: 20)
-      .padding(.horizontal, 10)
-    } else {
-      pillShape(dark: scheme == .dark)
-        .frame(height: 20)
-        .padding(.horizontal, 20)
-    }
-  }
-
-  private func pillShape(dark: Bool) -> some View {
-    Capsule()
-      .fill(dark ? Color(white: 0.08) : Color(white: 0.96))
-      .shadow(color: .black.opacity(dark ? 0.4 : 0.15), radius: 4, y: 2)
-  }
-}
-
-// MARK: - Dictation Mode: Hotkey
-
-struct DictationHotkeyTab: View {
+struct RecordingTab: View {
 
   @Bindable private var settings = SettingsManager.shared
   @State private var hotkeyError: String?
 
+  // Microphone test state
+  @State private var isTesting = false
+  @State private var isPlaying = false
+  @State private var testAudioURL: URL?
+  @State private var testTranscription: String?
+  @State private var testError: String?
+  @State private var audioPlayer: AVAudioPlayer?
+  @State private var availableMicrophones: [(id: AudioDeviceID, name: String)] = []
+
   var body: some View {
     Form {
+      // MARK: Hotkey
       Section {
         LabeledContent("Recording Hotkey") {
           HotkeyRecorderView(
@@ -436,6 +267,16 @@ struct DictationHotkeyTab: View {
             .font(.caption)
         }
 
+        Button("Reset to Default (\u{2303}\u{2325})") {
+          settings.updateHotkey(modifierFlags: 0xC0000, displayString: "\u{2303}\u{2325}")
+        }
+        .buttonStyle(.borderless)
+      } header: {
+        Text("Hotkey")
+      }
+
+      // MARK: Recording Behavior
+      Section {
         Toggle("Hold to record", isOn: $settings.holdToRecord)
           .help("When enabled, hold the hotkey to record and release to transcribe")
 
@@ -450,23 +291,17 @@ struct DictationHotkeyTab: View {
           }
           .help("Minimum recording duration to prevent accidental triggers")
         }
+
+        Toggle("Use Escape to cancel recording", isOn: $settings.useEscToCancel)
+          .help("Press Escape to cancel an active recording")
       } header: {
-        Text("Recording")
+        Text("Recording Behavior")
+      } footer: {
+        Text("Press the hotkey to start recording. Release to transcribe and insert text at the cursor.")
+          .font(.caption)
       }
 
-      Section {
-        VStack(alignment: .leading, spacing: 8) {
-          Text("Press the hotkey combination to start recording. Release to transcribe and insert text at the cursor position.")
-
-          Text("Tip: Choose a combination with 2+ modifiers (e.g., \u{2303}\u{2325}) to avoid conflicts with other apps.")
-            .font(.caption)
-        }
-        .foregroundStyle(.secondary)
-        .font(.callout)
-      } header: {
-        Text("How it works")
-      }
-
+      // MARK: Auto-Stop
       Section {
         Toggle("Auto-stop on silence", isOn: $settings.enableAutoStopOnSilence)
           .help("Automatically stop recording after extended silence")
@@ -502,20 +337,201 @@ struct DictationHotkeyTab: View {
         Text("Auto-Stop")
       }
 
+      // MARK: Microphone
       Section {
-        Button("Reset to Default (\u{2303}\u{2325})") {
-          settings.updateHotkey(modifierFlags: 0xC0000, displayString: "\u{2303}\u{2325}")
+        Picker("Device", selection: Binding(
+          get: { settings.selectedMicrophoneDeviceID },
+          set: { newValue in
+            settings.selectedMicrophoneDeviceID = newValue
+            AudioCaptureManager.shared.selectInputDevice(newValue == 0 ? nil : newValue)
+          }
+        )) {
+          Text("System Default").tag(UInt32(0))
+          Divider()
+          ForEach(availableMicrophones, id: \.id) { mic in
+            Text(mic.name).tag(mic.id)
+          }
         }
-        .buttonStyle(.borderless)
+
+        VStack(alignment: .leading, spacing: 12) {
+          HStack {
+            Button(isTesting ? "Stop Test" : "Start Test") {
+              if isTesting {
+                stopTest()
+              } else {
+                startTest()
+              }
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(isTesting ? .red : .accentColor)
+
+            if isTesting {
+              HStack(spacing: 4) {
+                Circle()
+                  .fill(Color.red)
+                  .frame(width: 8, height: 8)
+                  .opacity(0.8)
+                Text("Recording...")
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+              }
+            }
+
+            Spacer()
+
+            if testAudioURL != nil && !isTesting {
+              Button(isPlaying ? "Stop Playback" : "Play Audio") {
+                if isPlaying {
+                  stopPlayback()
+                } else {
+                  startPlayback()
+                }
+              }
+              .buttonStyle(.bordered)
+            }
+          }
+
+          if let error = testError {
+            Text(error)
+              .font(.caption)
+              .foregroundStyle(.red)
+          }
+
+          if let transcription = testTranscription {
+            VStack(alignment: .leading, spacing: 4) {
+              Text("Dictation Result:")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+              Text(transcription.isEmpty ? "(No speech detected)" : transcription)
+                .font(.body)
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.secondary.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
+          }
+        }
+        .padding(.top, 4)
+      } header: {
+        Text("Microphone")
       }
     }
     .formStyle(.grouped)
     .scrollIndicators(.never)
     .padding()
+    .onAppear {
+      availableMicrophones = AudioCaptureManager.shared.availableInputDevices()
+    }
+    .onReceive(NotificationCenter.default.publisher(for: AudioCaptureManager.inputDevicesChangedNotification)) { _ in
+      availableMicrophones = AudioCaptureManager.shared.availableInputDevices()
+    }
+    .onDisappear {
+      cleanupTest()
+    }
+  }
+
+  // MARK: - Test Microphone Logic
+
+  private func startTest() {
+    testError = nil
+    testTranscription = nil
+    testAudioURL = nil
+    stopPlayback()
+
+    do {
+      try AudioCaptureManager.shared.startRecording()
+      isTesting = true
+    } catch {
+      testError = "Failed to start recording: \(error.localizedDescription)"
+    }
+  }
+
+  private func stopTest() {
+    do {
+      let result = try AudioCaptureManager.shared.stopRecording()
+      testAudioURL = result.fileURL
+      isTesting = false
+      transcribeTestAudio(url: result.fileURL)
+    } catch {
+      testError = "Failed to stop recording: \(error.localizedDescription)"
+      isTesting = false
+    }
+  }
+
+  private func transcribeTestAudio(url: URL) {
+    testTranscription = "Transcribing..."
+
+    Task {
+      do {
+        try await TranscriptionService.shared.ensureModelReady()
+        let result = try await TranscriptionService.shared.transcribe(audioURL: url)
+        await MainActor.run {
+          testTranscription = result.text
+        }
+      } catch {
+        await MainActor.run {
+          testTranscription = nil
+          testError = "Transcription failed: \(error.localizedDescription)"
+        }
+      }
+    }
+  }
+
+  private func startPlayback() {
+    guard let url = testAudioURL else { return }
+
+    do {
+      audioPlayer = try AVAudioPlayer(contentsOf: url)
+      audioPlayer?.play()
+      isPlaying = true
+
+      Task {
+        while let player = audioPlayer, player.isPlaying {
+          try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+        await MainActor.run {
+          isPlaying = false
+        }
+      }
+    } catch {
+      testError = "Failed to play audio: \(error.localizedDescription)"
+    }
+  }
+
+  private func stopPlayback() {
+    audioPlayer?.stop()
+    isPlaying = false
+  }
+
+  private func cleanupTest() {
+    if isTesting {
+      AudioCaptureManager.shared.cancelRecording()
+      isTesting = false
+    }
+    stopPlayback()
+    if let url = testAudioURL {
+      AudioCaptureManager.shared.cleanupFile(at: url)
+    }
   }
 }
 
-// MARK: - Dictation Mode: Speech Model
+// MARK: - Formatting Helpers
+
+private func formatBytes(_ bytes: Int64) -> String {
+  if bytes == 0 { return "None" }
+  let formatter = ByteCountFormatter()
+  formatter.countStyle = .file
+  return formatter.string(fromByteCount: bytes)
+}
+
+private func formatSpeed(_ bytesPerSecond: Double) -> String {
+  if bytesPerSecond == 0 { return "0 KB/s" }
+  let formatter = ByteCountFormatter()
+  formatter.countStyle = .file
+  return formatter.string(fromByteCount: Int64(bytesPerSecond)) + "/s"
+}
+
+// MARK: - Speech Model
 
 struct DictationSpeechModelTab: View {
 
@@ -1140,7 +1156,7 @@ struct ModelBadge: View {
   }
 }
 
-// MARK: - Dictation Mode: Output
+// MARK: - Output
 
 struct DictationOutputTab: View {
 
@@ -1158,12 +1174,17 @@ struct DictationOutputTab: View {
           .help("When pasting as fallback, VoxNotch saves and restores whatever was on your clipboard.")
 
         Toggle("Add space after transcription", isOn: $settings.addSpaceAfterTranscription)
+      } header: {
+        Text("Delivery")
+      }
+
+      Section {
         Toggle("Remove filler words", isOn: $settings.removeFillerWords)
           .help("Automatically strip um, uh, er, ah, hmm from transcriptions (no AI required)")
         Toggle("Normalize numbers & currency", isOn: $settings.applyITN)
           .help("Convert spoken numbers to written form: \"two hundred\" \u{2192} \"200\", \"five dollars\" \u{2192} \"$5\" (no AI required)")
       } header: {
-        Text("Text Output")
+        Text("Text Cleanup")
       }
 
       // MARK: Custom Dictionary
@@ -1228,7 +1249,7 @@ struct DictationOutputTab: View {
   }
 }
 
-// MARK: - Dictation Mode: AI Enhancement
+// MARK: - AI Enhancement
 
 struct DictationAITab: View {
 
@@ -1810,204 +1831,6 @@ private struct NewToneSheet: View {
     }
     .padding(24)
     .frame(width: 420, height: 300)
-  }
-}
-
-// MARK: - Audio Sources
-
-struct AudioSourcesTab: View {
-
-  @Bindable private var settings = SettingsManager.shared
-
-  // Test Microphone State
-  @State private var isTesting = false
-  @State private var isPlaying = false
-  @State private var testAudioURL: URL?
-  @State private var testTranscription: String?
-  @State private var testError: String?
-  @State private var audioPlayer: AVAudioPlayer?
-
-  @State private var availableMicrophones: [(id: AudioDeviceID, name: String)] = []
-
-  var body: some View {
-    Form {
-      Section {
-        Picker("Device", selection: Binding(
-          get: { settings.selectedMicrophoneDeviceID },
-          set: { newValue in
-            settings.selectedMicrophoneDeviceID = newValue
-            AudioCaptureManager.shared.selectInputDevice(newValue == 0 ? nil : newValue)
-          }
-        )) {
-          Text("System Default").tag(UInt32(0))
-          Divider()
-          ForEach(availableMicrophones, id: \.id) { mic in
-            Text(mic.name).tag(mic.id)
-          }
-        }
-
-        VStack(alignment: .leading, spacing: 12) {
-          HStack {
-            Button(isTesting ? "Stop Test" : "Start Test") {
-              if isTesting {
-                stopTest()
-              } else {
-                startTest()
-              }
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(isTesting ? .red : .accentColor)
-
-            if isTesting {
-              HStack(spacing: 4) {
-                Circle()
-                  .fill(Color.red)
-                  .frame(width: 8, height: 8)
-                  .opacity(0.8)
-                Text("Recording...")
-                  .font(.caption)
-                  .foregroundStyle(.secondary)
-              }
-            }
-
-            Spacer()
-
-            if testAudioURL != nil && !isTesting {
-              Button(isPlaying ? "Stop Playback" : "Play Audio") {
-                if isPlaying {
-                  stopPlayback()
-                } else {
-                  startPlayback()
-                }
-              }
-              .buttonStyle(.bordered)
-            }
-          }
-
-          if let error = testError {
-            Text(error)
-              .font(.caption)
-              .foregroundStyle(.red)
-          }
-
-          if let transcription = testTranscription {
-            VStack(alignment: .leading, spacing: 4) {
-              Text("Dictation Result:")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-              Text(transcription.isEmpty ? "(No speech detected)" : transcription)
-                .font(.body)
-                .padding(8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.secondary.opacity(0.1))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-            }
-          }
-        }
-        .padding(.top, 4)
-      } header: {
-        Text("Microphone")
-      }
-    }
-    .formStyle(.grouped)
-    .scrollIndicators(.never)
-    .padding()
-    .onAppear {
-      availableMicrophones = AudioCaptureManager.shared.availableInputDevices()
-    }
-    .onReceive(NotificationCenter.default.publisher(for: AudioCaptureManager.inputDevicesChangedNotification)) { _ in
-      availableMicrophones = AudioCaptureManager.shared.availableInputDevices()
-    }
-    .onDisappear {
-      cleanupTest()
-    }
-  }
-
-  // MARK: - Test Microphone Logic
-
-  private func startTest() {
-    testError = nil
-    testTranscription = nil
-    testAudioURL = nil
-    stopPlayback()
-
-    do {
-      try AudioCaptureManager.shared.startRecording()
-      isTesting = true
-    } catch {
-      testError = "Failed to start recording: \(error.localizedDescription)"
-    }
-  }
-
-  private func stopTest() {
-    do {
-      let result = try AudioCaptureManager.shared.stopRecording()
-      testAudioURL = result.fileURL
-      isTesting = false
-
-      // Start transcription
-      transcribeTestAudio(url: result.fileURL)
-    } catch {
-      testError = "Failed to stop recording: \(error.localizedDescription)"
-      isTesting = false
-    }
-  }
-
-  private func transcribeTestAudio(url: URL) {
-    testTranscription = "Transcribing..."
-
-    Task {
-      do {
-        try await TranscriptionService.shared.ensureModelReady()
-        let result = try await TranscriptionService.shared.transcribe(audioURL: url)
-        await MainActor.run {
-          testTranscription = result.text
-        }
-      } catch {
-        await MainActor.run {
-          testTranscription = nil
-          testError = "Transcription failed: \(error.localizedDescription)"
-        }
-      }
-    }
-  }
-
-  private func startPlayback() {
-    guard let url = testAudioURL else { return }
-
-    do {
-      audioPlayer = try AVAudioPlayer(contentsOf: url)
-      audioPlayer?.play()
-      isPlaying = true
-
-      // Simple polling to check when playback finishes
-      Task {
-        while let player = audioPlayer, player.isPlaying {
-          try? await Task.sleep(nanoseconds: 100_000_000) // 0.1s
-        }
-        await MainActor.run {
-          isPlaying = false
-        }
-      }
-    } catch {
-      testError = "Failed to play audio: \(error.localizedDescription)"
-    }
-  }
-
-  private func stopPlayback() {
-    audioPlayer?.stop()
-    isPlaying = false
-  }
-
-  private func cleanupTest() {
-    if isTesting {
-      AudioCaptureManager.shared.cancelRecording()
-      isTesting = false
-    }
-    stopPlayback()
-    if let url = testAudioURL {
-      AudioCaptureManager.shared.cleanupFile(at: url)
-    }
   }
 }
 
