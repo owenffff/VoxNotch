@@ -162,17 +162,22 @@ final class TextOutputManager {
     }
 
     /// Returns true if the frontmost application has a focused text input element.
-    /// Uses the Accessibility API to query the focused UI element's role.
-    /// Returns false on any failure (no frontmost app, AX permission denied, wrong role).
     func hasFocusedTextInput() -> Bool {
-        guard let frontmostApp = NSWorkspace.shared.frontmostApplication else {
+        return hasFocusedTextInput(for: NSWorkspace.shared.frontmostApplication)
+    }
+
+    /// Returns true if the given application has a focused text input element.
+    /// Uses the Accessibility API to query the focused UI element's role.
+    /// When `app` is nil, falls back to the current frontmost application.
+    func hasFocusedTextInput(for app: NSRunningApplication?) -> Bool {
+        guard let targetApp = app ?? NSWorkspace.shared.frontmostApplication else {
             return false
         }
 
         // For certain apps like Chrome, Arc, or Electron apps, the accessibility tree
         // might not expose the exact text field role, or it might be an AXWebArea.
         // We can whitelist these apps to always attempt text output.
-        if let bundleID = frontmostApp.bundleIdentifier {
+        if let bundleID = targetApp.bundleIdentifier {
             let whitelistedPrefixes = [
                 "com.google.Chrome",
                 "company.thebrowser.Browser", // Arc
@@ -185,13 +190,13 @@ final class TextOutputManager {
                 "com.microsoft.edgemac",
                 "org.mozilla.firefox"
             ]
-            
+
             if whitelistedPrefixes.contains(where: { bundleID.hasPrefix($0) }) {
                 return true
             }
         }
 
-        let pid = frontmostApp.processIdentifier
+        let pid = targetApp.processIdentifier
         let axApp = AXUIElementCreateApplication(pid)
         var focusedElement: CFTypeRef?
         let result = AXUIElementCopyAttributeValue(axApp, kAXFocusedUIElementAttribute as CFString, &focusedElement)
@@ -209,9 +214,9 @@ final class TextOutputManager {
         }
 
         let textRoles: Set<String> = [
-            "AXTextField", 
-            "AXTextArea", 
-            "AXComboBox", 
+            "AXTextField",
+            "AXTextArea",
+            "AXComboBox",
             "AXSearchField",
             "AXWebArea",
             "AXDocument"

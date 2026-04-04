@@ -5,6 +5,7 @@
 //  Orchestrates the Quick Dictation flow: hotkey -> record -> transcribe -> output
 //
 
+import AppKit
 import Foundation
 
 /// Controller for Quick Dictation mode (hold-to-record, release to transcribe)
@@ -62,6 +63,10 @@ final class QuickDictationController {
 
     /// Session ID incremented on cancel so in-flight transcription tasks know to discard results
     private var currentSessionID = UUID()
+
+    /// The frontmost application when the user pressed the hotkey.
+    /// Captured before the notch panel appears so AX queries target the correct app.
+    private var savedFrontmostApp: NSRunningApplication?
 
     /// Watchdog timer to prevent stuck recording state
     private var watchdogTimer: Timer?
@@ -290,6 +295,10 @@ final class QuickDictationController {
 
         print("QuickDictationController: Starting audio capture...")
 
+        // Capture the frontmost app BEFORE showing the notch panel,
+        // so AX queries later target the correct application.
+        savedFrontmostApp = NSWorkspace.shared.frontmostApplication
+
         // Set recording state synchronously so keyUp can always see it
         updateState(.recording)
         recordingStartTime = Date()
@@ -446,7 +455,7 @@ final class QuickDictationController {
 
         // Detect focused text input BEFORE transitioning to .outputting,
         // because the notch feedback fires on that state transition.
-        let hasFocusedInput = textOutputManager.hasFocusedTextInput()
+        let hasFocusedInput = textOutputManager.hasFocusedTextInput(for: savedFrontmostApp)
         print("QuickDictationController: hasFocusedTextInput=\(hasFocusedInput)")
 
         await MainActor.run {
@@ -481,11 +490,28 @@ final class QuickDictationController {
 
     // MARK: - Session Management
 
+    /// Stop recording and discard audio without hiding the notch.
+    /// Used when transitioning from recording directly into model/tone selection
+    /// so the expanded panel stays visible and content swaps seamlessly.
+    private func stopRecordingQuietly() {
+        currentSessionID = UUID()
+        savedFrontmostApp = nil
+        audioManager.cancelRecording()
+        durationTimer?.invalidate()
+        durationTimer = nil
+        appState.recordingDuration = 0
+        // Transition to idle without triggering NotchManager.hide()
+        state = .idle
+        appState.isRecording = false
+        appState.silenceWarningActive = false
+    }
+
     /// Force cancel any active recording or transcription.
     /// Increments currentSessionID to invalidate any in-flight transcription tasks.
     private func cancelCurrentSession() {
         print("QuickDictationController: Cancelling current session")
         currentSessionID = UUID()
+        savedFrontmostApp = nil
 
         // Stop audio capture
         audioManager.cancelRecording()
@@ -500,9 +526,10 @@ final class QuickDictationController {
         // Ignore if model selection is already active (one picker at a time)
         if case .modelSelecting = state { return }
 
-        // If recording, abort immediately before entering tone selection
+        // If recording, stop recording quietly without hiding the notch
+        // so the transition to tone selection is seamless.
         if case .recording = state {
-            cancelCurrentSession()
+            stopRecordingQuietly()
         }
 
         // Enter or advance tone selection
@@ -554,6 +581,7 @@ final class QuickDictationController {
         }
 
         updateState(.idle)
+        NotchManager.shared.hide()
     }
 
     // MARK: - Model Selection
@@ -562,9 +590,10 @@ final class QuickDictationController {
         // Ignore if tone selection is already active (one picker at a time)
         if case .toneSelecting = state { return }
 
-        // If recording, abort immediately before entering model selection
+        // If recording, stop recording quietly without hiding the notch
+        // so the transition to model selection is seamless.
         if case .recording = state {
-            cancelCurrentSession()
+            stopRecordingQuietly()
         }
 
         // Enter or advance model selection
@@ -618,6 +647,7 @@ final class QuickDictationController {
         }
 
         updateState(.idle)
+        NotchManager.shared.hide()
     }
 
     // MARK: - State Management

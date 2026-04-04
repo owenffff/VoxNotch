@@ -217,6 +217,7 @@
 				SDKROOT = macosx;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = targeted;
 			};
 			name = Debug;
 		};
@@ -273,6 +274,7 @@
 				MTL_FAST_MATH = YES;
 				SDKROOT = macosx;
 				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_STRICT_CONCURRENCY = targeted;
 			};
 			name = Release;
 		};
@@ -290,7 +292,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = VoxNotch/Info.plist;
+
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "VoxNotch needs microphone access for voice dictation";
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
@@ -322,7 +324,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = VoxNotch/Info.plist;
+
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "VoxNotch needs microphone access for voice dictation";
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";

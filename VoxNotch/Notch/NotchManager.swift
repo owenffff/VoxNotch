@@ -47,24 +47,24 @@ final class NotchManager {
 
   func showRecording() {
     cancelAutoHide()
-    showCompactOrExpand()
+    showExpanded()
   }
 
   func showTranscribing() {
     cancelAutoHide()
-    showCompactOrExpand()
+    showExpanded()
   }
 
   func showProcessingLLM() {
     cancelAutoHide()
-    showCompactOrExpand()
+    showExpanded()
   }
 
   func showSuccess() {
     cancelAutoHide()
     appState.isShowingSuccess = true
     appState.isShowingClipboard = false
-    showCompactOrExpand()
+    showExpanded()
     scheduleAutoHide(after: 1.5)
   }
 
@@ -72,29 +72,30 @@ final class NotchManager {
     cancelAutoHide()
     appState.isShowingClipboard = true
     appState.isShowingSuccess = false
-    showCompactOrExpand()
+    showExpanded()
     scheduleAutoHide(after: 1.5)
   }
 
   func showError(_ message: String) {
     cancelAutoHide()
-    showCompactOrExpand()
+    showExpanded()
     scheduleAutoHide(after: 3.0)
   }
 
   func showModelSelector() {
     cancelAutoHide()
-    showCompactOrExpand()
+    showExpanded()
   }
 
   func showToneSelector() {
     cancelAutoHide()
-    showCompactOrExpand()
+    showExpanded()
   }
 
   func showModelsNeeded(_ message: String) {
     cancelAutoHide()
-    showCompactOrExpand()
+    showExpanded()
+    scheduleAutoHide(after: 3.0)
   }
 
   func hide() {
@@ -108,20 +109,9 @@ final class NotchManager {
 
   // MARK: - Private
 
-  /// Whether the main screen has a physical notch.
-  /// Mirrors DynamicNotchKit's internal `hasNotch` check.
-  private var isNotchScreen: Bool {
-    guard let screen = NSScreen.main else {
-      return false
-    }
-
-    return screen.auxiliaryTopLeftArea?.width != nil
-      && screen.auxiliaryTopRightArea?.width != nil
-  }
-
-  /// On notch Macs, show compact (leading + trailing flanking the notch).
-  /// On non-notch Macs, show expanded (floating panel with the same HStack).
-  private func showCompactOrExpand() {
+  /// Show the expanded notch (drops below physical notch) for transient messages.
+  /// On non-notch Macs, shows the floating panel.
+  private func showExpanded() {
     guard
       let notch,
       let screen = NSScreen.main
@@ -130,11 +120,7 @@ final class NotchManager {
     }
 
     Task {
-      if isNotchScreen {
-        await notch.compact(on: screen)
-      } else {
-        await notch.expand(on: screen)
-      }
+      await notch.expand(on: screen)
     }
   }
 
