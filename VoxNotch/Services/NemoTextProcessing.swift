@@ -204,46 +204,6 @@ public enum NemoTextProcessing {
         return String(cString: resultPtr)
     }
 
-    // MARK: - Custom Rules
-
-    /// Add a custom spoken→written normalization rule.
-    ///
-    /// Custom rules have the highest priority, checked before all built-in taggers.
-    /// Matching is case-insensitive on the spoken form.
-    /// If a rule with the same spoken form exists, it is replaced.
-    ///
-    /// - Parameters:
-    ///   - spoken: The spoken form to match (e.g., "gee pee tee")
-    ///   - written: The written replacement (e.g., "GPT")
-    public static func addRule(spoken: String, written: String) {
-        spoken.withCString { spokenPtr in
-            written.withCString { writtenPtr in
-                nemo_add_rule(spokenPtr, writtenPtr)
-            }
-        }
-    }
-
-    /// Remove a custom normalization rule.
-    ///
-    /// - Parameter spoken: The spoken form to remove
-    /// - Returns: True if the rule was found and removed
-    @discardableResult
-    public static func removeRule(spoken: String) -> Bool {
-        return spoken.withCString { spokenPtr in
-            nemo_remove_rule(spokenPtr) != 0
-        }
-    }
-
-    /// Clear all custom normalization rules.
-    public static func clearRules() {
-        nemo_clear_rules()
-    }
-
-    /// The number of custom rules currently registered.
-    public static var ruleCount: Int {
-        Int(nemo_rule_count())
-    }
-
     // MARK: - Info
 
     /// Get the library version.

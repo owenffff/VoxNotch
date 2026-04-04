@@ -78,7 +78,7 @@ struct HistoryWindowView: View {
         transcriptionList
       }
     }
-    .frame(minWidth: 250)
+    .frame(minWidth: 280)
   }
 
   private var transcriptionList: some View {
@@ -173,6 +173,48 @@ struct HistoryWindowView: View {
   }
 }
 
+// MARK: - Metadata Helpers
+
+/// Decoded metadata from a TranscriptionRecord's JSON metadata field
+private struct TranscriptionMetadata {
+  let tone: String?
+  let outputMethod: String?
+
+  init(from record: TranscriptionRecord) {
+    guard let json = record.metadata,
+          let data = json.data(using: .utf8),
+          let dict = try? JSONDecoder().decode([String: String].self, from: data)
+    else {
+      self.tone = nil
+      self.outputMethod = nil
+      return
+    }
+    self.tone = dict["tone"]
+    self.outputMethod = dict["outputMethod"]
+  }
+
+  var outputMethodLabel: String? {
+    guard let method = outputMethod else { return nil }
+    return method == "paste" ? "Pasted" : "Clipboard"
+  }
+
+  var outputMethodIcon: String {
+    outputMethod == "paste" ? "text.cursor" : "doc.on.clipboard"
+  }
+}
+
+// MARK: - Model Name Resolver
+
+private func resolveModelDisplayName(_ rawModel: String) -> String {
+  if let builtin = SpeechModel(rawValue: rawModel) {
+    return builtin.displayName
+  }
+  if let custom = CustomModelRegistry.shared.model(withID: rawModel) {
+    return custom.displayName
+  }
+  return rawModel
+}
+
 // MARK: - Transcription Row View
 
 @available(macOS 26.0, *)
@@ -180,18 +222,20 @@ struct TranscriptionRowView: View {
 
   let transcription: TranscriptionRecord
 
-  private var formattedDate: String {
-    let formatter = DateFormatter()
-    formatter.dateStyle = .medium
-    formatter.timeStyle = .short
-    return formatter.string(from: transcription.timestamp)
+  private var metadata: TranscriptionMetadata {
+    TranscriptionMetadata(from: transcription)
+  }
+
+  private var relativeDate: String {
+    let formatter = RelativeDateTimeFormatter()
+    formatter.unitsStyle = .abbreviated
+    return formatter.localizedString(for: transcription.timestamp, relativeTo: Date())
   }
 
   private var formattedDuration: String {
     let total = Int(transcription.duration)
     let m = total / 60
     let s = total % 60
-
     if m > 0 {
       return "\(m)m \(s)s"
     }
@@ -199,34 +243,50 @@ struct TranscriptionRowView: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 4) {
+    VStack(alignment: .leading, spacing: 6) {
+      // Preview text
       Text(transcription.displayText)
         .font(.body)
         .lineLimit(2)
 
-      HStack(spacing: 8) {
-        Text(formattedDate)
-          .font(.caption)
-          .foregroundStyle(.secondary)
+      // Metadata pills
+      HStack(spacing: 6) {
+        MetadataPill(icon: "clock", text: relativeDate)
+
+        MetadataPill(icon: "waveform", text: resolveModelDisplayName(transcription.model))
+
+        if transcription.wasProcessed, let tone = metadata.tone {
+          MetadataPill(icon: "sparkles", text: tone, tint: .purple)
+        }
 
         Spacer()
 
-        if transcription.wasProcessed {
-          Image(systemName: "sparkles")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-
-        Label(formattedDuration, systemImage: "clock")
-          .font(.caption)
-          .foregroundStyle(.secondary)
+        Text(formattedDuration)
+          .font(.caption2)
+          .foregroundStyle(.tertiary)
+          .monospacedDigit()
       }
-
-      Text(transcription.model)
-        .font(.caption2)
-        .foregroundStyle(.tertiary)
     }
     .padding(.vertical, 4)
+  }
+}
+
+// MARK: - Metadata Pill
+
+private struct MetadataPill: View {
+  let icon: String
+  let text: String
+  var tint: Color? = nil
+
+  var body: some View {
+    HStack(spacing: 3) {
+      Image(systemName: icon)
+        .font(.system(size: 9))
+      Text(text)
+        .font(.caption2)
+        .lineLimit(1)
+    }
+    .foregroundStyle(tint ?? .secondary)
   }
 }
 
@@ -236,6 +296,10 @@ struct TranscriptionRowView: View {
 struct TranscriptionDetailView: View {
 
   let transcription: TranscriptionRecord
+
+  private var metadata: TranscriptionMetadata {
+    TranscriptionMetadata(from: transcription)
+  }
 
   private var formattedDate: String {
     let formatter = DateFormatter()
@@ -248,7 +312,6 @@ struct TranscriptionDetailView: View {
     let total = Int(transcription.duration)
     let m = total / 60
     let s = total % 60
-
     if m > 0 {
       return String(format: "%dm %02ds", m, s)
     }
@@ -257,54 +320,67 @@ struct TranscriptionDetailView: View {
 
   var body: some View {
     ScrollView {
-      VStack(alignment: .leading, spacing: 16) {
-        /// Header
-        Group {
+      VStack(alignment: .leading, spacing: 20) {
+        // Header badges
+        VStack(alignment: .leading, spacing: 10) {
           Text(formattedDate)
             .font(.subheadline)
             .foregroundStyle(.secondary)
 
-          HStack(spacing: 16) {
-            Label(formattedDuration, systemImage: "clock")
-            Label(transcription.model, systemImage: "waveform")
+          HStack(spacing: 8) {
+            DetailBadge(icon: "clock", text: formattedDuration)
+            DetailBadge(icon: "waveform", text: resolveModelDisplayName(transcription.model))
+
             if let confidence = transcription.confidence {
-              Label("\(Int(confidence * 100))%", systemImage: "checkmark.circle")
+              DetailBadge(icon: "checkmark.seal", text: "\(Int(confidence * 100))%")
             }
-            if transcription.wasProcessed {
-              Label("AI Enhanced", systemImage: "sparkles")
+
+            if let tone = metadata.tone, tone != "Original" {
+              DetailBadge(icon: "sparkles", text: tone, tint: .purple)
+            }
+
+            if let outputLabel = metadata.outputMethodLabel {
+              DetailBadge(icon: metadata.outputMethodIcon, text: outputLabel)
             }
           }
-          .font(.caption)
-          .foregroundStyle(.secondary)
         }
 
         Divider()
 
-        /// Main text
+        // Text content
         if transcription.wasProcessed {
-          VStack(alignment: .leading, spacing: 8) {
-            Text("Enhanced Text")
-              .font(.caption)
-              .foregroundStyle(.secondary)
-              .textCase(.uppercase)
+          // Enhanced + original comparison
+          VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+              Label("Enhanced", systemImage: "sparkles")
+                .font(.caption)
+                .fontWeight(.medium)
+                .foregroundStyle(.purple)
 
-            Text(transcription.processedText ?? "")
-              .font(.body)
-              .fixedSize(horizontal: false, vertical: true)
-          }
+              Text(transcription.processedText ?? "")
+                .font(.body)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.purple.opacity(0.04))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
 
-          Divider()
+            VStack(alignment: .leading, spacing: 6) {
+              Label("Original", systemImage: "text.quote")
+                .font(.caption)
+                .fontWeight(.medium)
+                .foregroundStyle(.secondary)
 
-          VStack(alignment: .leading, spacing: 8) {
-            Text("Original Text")
-              .font(.caption)
-              .foregroundStyle(.secondary)
-              .textCase(.uppercase)
-
-            Text(transcription.rawText)
-              .font(.body)
-              .foregroundStyle(.secondary)
-              .fixedSize(horizontal: false, vertical: true)
+              Text(transcription.rawText)
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.secondary.opacity(0.04))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
           }
         } else {
           Text(transcription.rawText)
@@ -332,6 +408,28 @@ struct TranscriptionDetailView: View {
   private func copyFullText() {
     NSPasteboard.general.clearContents()
     NSPasteboard.general.setString(transcription.displayText, forType: .string)
+  }
+}
+
+// MARK: - Detail Badge
+
+private struct DetailBadge: View {
+  let icon: String
+  let text: String
+  var tint: Color? = nil
+
+  var body: some View {
+    HStack(spacing: 4) {
+      Image(systemName: icon)
+        .font(.system(size: 10))
+      Text(text)
+        .font(.caption)
+    }
+    .foregroundStyle(tint ?? .secondary)
+    .padding(.horizontal, 8)
+    .padding(.vertical, 4)
+    .background((tint ?? .secondary).opacity(0.08))
+    .clipShape(Capsule())
   }
 }
 

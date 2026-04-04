@@ -49,8 +49,6 @@ final class SettingsManager {
     static let removeFillerWords = "removeFillerWords"
     static let applyITN = "applyITN"
     static let useClipboardForOutput = "useClipboardForOutput"
-    static let customDictionaryEnabled = "customDictionaryEnabled"
-
     /// LLM
     static let enablePostProcessing = "enablePostProcessing"
     static let llmProvider = "llmProvider"
@@ -92,6 +90,15 @@ final class SettingsManager {
 
     /// FluidAudio Settings
     static let fluidAudioModel = "fluidAudioModel"
+
+    /// Sound Feedback
+    static let successSoundEnabled = "successSoundEnabled"
+    static let customSuccessSoundPath = "customSuccessSoundPath"
+
+    /// History
+    static let historyEnabled = "historyEnabled"
+    static let historyRetentionDays = "historyRetentionDays"
+    static let saveAudioRecordings = "saveAudioRecordings"
   }
 
   /// Current settings version for migrations
@@ -175,13 +182,6 @@ final class SettingsManager {
 
   var applyITN: Bool {
     didSet { save(applyITN, forKey: Keys.applyITN) }
-  }
-
-  var customDictionaryEnabled: Bool {
-    didSet {
-      save(customDictionaryEnabled, forKey: Keys.customDictionaryEnabled)
-      DictionaryRegistry.shared.syncToNemo()
-    }
   }
 
   // MARK: - LLM Settings
@@ -353,6 +353,35 @@ final class SettingsManager {
     didSet { save(fluidAudioModel, forKey: Keys.fluidAudioModel) }
   }
 
+  // MARK: - Sound Feedback Settings
+
+  /// Whether to play a sound on successful dictation output
+  var successSoundEnabled: Bool {
+    didSet { save(successSoundEnabled, forKey: Keys.successSoundEnabled) }
+  }
+
+  /// Path to a custom success sound file (empty = use default system sound)
+  var customSuccessSoundPath: String {
+    didSet { save(customSuccessSoundPath, forKey: Keys.customSuccessSoundPath) }
+  }
+
+  // MARK: - History Settings
+
+  /// Whether to save transcriptions to history
+  var historyEnabled: Bool {
+    didSet { save(historyEnabled, forKey: Keys.historyEnabled) }
+  }
+
+  /// Number of days to retain history (0 = keep forever)
+  var historyRetentionDays: Int {
+    didSet { save(historyRetentionDays, forKey: Keys.historyRetentionDays) }
+  }
+
+  /// Whether to save audio recordings alongside transcriptions
+  var saveAudioRecordings: Bool {
+    didSet { save(saveAudioRecordings, forKey: Keys.saveAudioRecordings) }
+  }
+
   // MARK: - Initialization
 
   private init() {
@@ -381,8 +410,6 @@ final class SettingsManager {
     self.removeFillerWords = defaults.object(forKey: Keys.removeFillerWords) as? Bool ?? false
     self.applyITN = defaults.object(forKey: Keys.applyITN) as? Bool ?? true
     self.useClipboardForOutput = defaults.object(forKey: Keys.useClipboardForOutput) as? Bool ?? true
-    self.customDictionaryEnabled = defaults.object(forKey: Keys.customDictionaryEnabled) as? Bool ?? true
-
     /// LLM
     self.llmProvider = defaults.string(forKey: Keys.llmProvider) ?? "local"
     self.llmEndpointURL = defaults.string(forKey: Keys.llmEndpointURL) ?? "http://localhost:11434"
@@ -422,6 +449,15 @@ final class SettingsManager {
 
     /// FluidAudio Settings
     self.fluidAudioModel = defaults.string(forKey: Keys.fluidAudioModel) ?? "v2"
+
+    /// Sound Feedback
+    self.successSoundEnabled = defaults.object(forKey: Keys.successSoundEnabled) as? Bool ?? true
+    self.customSuccessSoundPath = defaults.string(forKey: Keys.customSuccessSoundPath) ?? ""
+
+    /// History
+    self.historyEnabled = defaults.object(forKey: Keys.historyEnabled) as? Bool ?? true
+    self.historyRetentionDays = defaults.object(forKey: Keys.historyRetentionDays) as? Int ?? 0
+    self.saveAudioRecordings = defaults.object(forKey: Keys.saveAudioRecordings) as? Bool ?? false
 
     /// Run migrations if needed
     runMigrations()
@@ -464,7 +500,7 @@ final class SettingsManager {
       Keys.hotkeyModifiers, Keys.hotkeyModifierFlags, Keys.holdToRecord, Keys.minimumRecordingDuration,
       Keys.selectedModel, Keys.transcriptionLanguage,
       Keys.addSpaceAfterTranscription, Keys.removeFillerWords, Keys.applyITN,
-      Keys.restoreClipboard, Keys.useClipboardForOutput, Keys.customDictionaryEnabled,
+      Keys.restoreClipboard, Keys.useClipboardForOutput,
       Keys.llmProvider, Keys.llmEndpointURL, Keys.llmModel,
       Keys.promptTemplate, Keys.customPrompt,
       Keys.openAIBaseURL, Keys.sttProvider,
@@ -472,7 +508,9 @@ final class SettingsManager {
       Keys.selectedMicrophoneDeviceID,
       Keys.asrEngine, Keys.mlxAudioModel, Keys.speechModel,
       Keys.fluidAudioModel,
-      Keys.activeToneID, Keys.pinnedToneIDs
+      Keys.activeToneID, Keys.pinnedToneIDs,
+      Keys.historyEnabled, Keys.historyRetentionDays, Keys.saveAudioRecordings,
+      Keys.successSoundEnabled, Keys.customSuccessSoundPath
     ]
 
     for key in allKeys {
@@ -493,7 +531,6 @@ final class SettingsManager {
     removeFillerWords = false
     applyITN = true
     useClipboardForOutput = true
-    customDictionaryEnabled = true
     llmProvider = "local"
     llmEndpointURL = "http://localhost:11434"
     llmModel = "llama3.2"
@@ -513,5 +550,10 @@ final class SettingsManager {
     activeToneID = "cleanup"
     pinnedToneIDs = ["cleanup", "punctuation", "filler-removal"]
     fluidAudioModel = "v2"
+    historyEnabled = true
+    historyRetentionDays = 0
+    saveAudioRecordings = false
+    successSoundEnabled = true
+    customSuccessSoundPath = ""
   }
 }

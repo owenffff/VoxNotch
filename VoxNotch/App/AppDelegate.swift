@@ -29,8 +29,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupSleepWakeHandling()
         configureAppBehavior()
 
-        // Load custom dictionary rules into NemoTextProcessing
-        _ = DictionaryRegistry.shared
     }
 
     func applicationWillTerminate(_ notification: Notification) {

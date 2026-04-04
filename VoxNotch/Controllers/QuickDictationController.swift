@@ -7,6 +7,7 @@
 
 import AppKit
 import Foundation
+import GRDB
 import SwiftUI
 
 /// Controller for Quick Dictation mode (hold-to-record, release to transcribe)
@@ -417,9 +418,7 @@ final class QuickDictationController {
                 let text: String = {
                   let raw = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
                   let filtered = SettingsManager.shared.removeFillerWords ? FillerWordFilter.clean(raw) : raw
-                  let hasCustomRules = SettingsManager.shared.customDictionaryEnabled
-                      && !DictionaryRegistry.shared.entries.isEmpty
-                  if SettingsManager.shared.applyITN || hasCustomRules {
+                  if SettingsManager.shared.applyITN {
                       return NemoTextProcessing.normalizeSentence(filtered)
                   } else {
                       return filtered
@@ -469,6 +468,50 @@ final class QuickDictationController {
                     finalText = text
                 }
 
+                // Save to history (non-blocking, non-fatal)
+                if SettingsManager.shared.historyEnabled {
+                    var audioPath: String? = nil
+                    if SettingsManager.shared.saveAudioRecordings {
+                        let audioDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+                            .appendingPathComponent("VoxNotch/audio", isDirectory: true)
+                        try? FileManager.default.createDirectory(at: audioDir, withIntermediateDirectories: true)
+                        let dest = audioDir.appendingPathComponent("\(UUID().uuidString).wav")
+                        try? FileManager.default.copyItem(at: captureResult.fileURL, to: dest)
+                        audioPath = dest.path
+                    }
+
+                    // Build metadata JSON with tone and output method
+                    let toneID = SettingsManager.shared.activeToneID
+                    let toneName = ToneRegistry.shared.tone(forID: toneID)?.displayName ?? toneID
+                    let hasFocusedInput = self.textOutputManager.hasFocusedTextInput(for: self.savedFrontmostApp)
+                    let metadataDict: [String: String] = [
+                        "tone": toneName,
+                        "outputMethod": hasFocusedInput ? "paste" : "clipboard",
+                    ]
+                    let metadataJSON = (try? JSONEncoder().encode(metadataDict))
+                        .flatMap { String(data: $0, encoding: .utf8) }
+
+                    let processedText = (finalText != text) ? finalText : nil
+                    var record = TranscriptionRecord(
+                        rawText: text,
+                        processedText: processedText,
+                        model: SettingsManager.shared.speechModel,
+                        duration: captureResult.duration,
+                        confidence: result.confidence.map(Double.init),
+                        audioPath: audioPath,
+                        metadata: metadataJSON
+                    )
+                    Task.detached {
+                        do {
+                            _ = try await DatabaseManager.shared.write { db in
+                                try record.insert(db)
+                            }
+                        } catch {
+                            print("QuickDictationController: Failed to save history: \(error)")
+                        }
+                    }
+                }
+
                 // Output the text
                 await outputText(finalText)
 
@@ -508,6 +551,7 @@ final class QuickDictationController {
                 print("QuickDictationController: Text output succeeded (also on clipboard)")
                 await MainActor.run {
                     NotchManager.shared.showSuccess()
+                    SoundManager.shared.playSuccessSound()
                     updateState(.idle)
                 }
             } catch {
@@ -522,6 +566,7 @@ final class QuickDictationController {
             textOutputManager.copyToClipboardOnly(text)
             await MainActor.run {
                 NotchManager.shared.showClipboard()
+                SoundManager.shared.playSuccessSound()
                 updateState(.idle)
             }
         }

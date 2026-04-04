@@ -9,36 +9,41 @@ import SwiftUI
 import ServiceManagement
 import AVFoundation
 import CoreAudio
+import UniformTypeIdentifiers
+import GRDB
 
 // MARK: - Settings Panel
 
 /// Settings panel identifiers organized by mode
 enum SettingsPanel: String, CaseIterable, Identifiable {
+  case general
   case recording
   case speechModel
   case output
   case ai
-  case general
+  case history
 
   var id: String { rawValue }
 
   var title: String {
     switch self {
+    case .general: "General"
     case .recording: "Recording"
     case .speechModel: "Speech Model"
     case .output: "Output"
     case .ai: "Tones"
-    case .general: "General"
+    case .history: "History"
     }
   }
 
   var icon: String {
     switch self {
+    case .general: "gear"
     case .recording: "waveform.circle"
     case .speechModel: "waveform"
     case .output: "text.cursor"
     case .ai: "sparkles"
-    case .general: "gear"
+    case .history: "clock.arrow.circlepath"
     }
   }
 }
@@ -48,11 +53,13 @@ enum SettingsPanel: String, CaseIterable, Identifiable {
 /// Main settings view with mode-based sidebar navigation
 struct SettingsView: View {
 
-  @State private var selectedPanel: SettingsPanel = .recording
+  @State private var selectedPanel: SettingsPanel = .general
 
   var body: some View {
     HStack(spacing: 0) {
       List(selection: $selectedPanel) {
+        Label("General", systemImage: "gear")
+          .tag(SettingsPanel.general)
         Label("Recording", systemImage: "waveform.circle")
           .tag(SettingsPanel.recording)
         Label("Speech Model", systemImage: "waveform")
@@ -61,8 +68,8 @@ struct SettingsView: View {
           .tag(SettingsPanel.output)
         Label("Tones", systemImage: "sparkles")
           .tag(SettingsPanel.ai)
-        Label("General", systemImage: "gear")
-          .tag(SettingsPanel.general)
+        Label("History", systemImage: "clock.arrow.circlepath")
+          .tag(SettingsPanel.history)
       }
       .listStyle(.sidebar)
       .frame(width: 200)
@@ -95,6 +102,9 @@ struct SettingsView: View {
   @ViewBuilder
   private var detailView: some View {
     switch selectedPanel {
+    case .general:
+      GeneralSettingsTab()
+
     case .recording:
       RecordingTab()
 
@@ -107,8 +117,8 @@ struct SettingsView: View {
     case .ai:
       DictationAITab()
 
-    case .general:
-      GeneralSettingsTab()
+    case .history:
+      HistoryTab()
     }
   }
 }
@@ -230,6 +240,112 @@ struct GeneralSettingsTab: View {
       loginItemError = "Failed to update login item: \(error.localizedDescription)"
       /// Revert setting on failure
       settings.launchAtLogin = isLoginItemEnabled
+    }
+  }
+}
+
+// MARK: - History
+
+struct HistoryTab: View {
+
+  @Bindable private var settings = SettingsManager.shared
+  @State private var showClearAllConfirmation = false
+  @State private var transcriptionCount: Int = 0
+
+  private let retentionOptions: [(label: String, days: Int)] = [
+    ("Forever", 0),
+    ("7 days", 7),
+    ("30 days", 30),
+    ("90 days", 90),
+    ("1 year", 365),
+  ]
+
+  var body: some View {
+    Form {
+      Section {
+        Toggle("Save dictation history", isOn: $settings.historyEnabled)
+          .help("When enabled, VoxNotch saves transcriptions so you can review them later.")
+      } header: {
+        Text("History")
+      }
+
+      if settings.historyEnabled {
+        Section {
+          Picker("Auto-delete after", selection: $settings.historyRetentionDays) {
+            ForEach(retentionOptions, id: \.days) { option in
+              Text(option.label).tag(option.days)
+            }
+          }
+          .help("Automatically remove transcriptions older than this. \"Forever\" keeps everything.")
+
+          Toggle("Save audio recordings", isOn: $settings.saveAudioRecordings)
+            .help("Keep the original audio alongside each transcription for playback. Uses more disk space.")
+        } header: {
+          Text("Retention")
+        }
+      }
+
+      Section {
+        if transcriptionCount > 0 {
+          LabeledContent("Saved transcriptions") {
+            Text("\(transcriptionCount)")
+              .foregroundStyle(.secondary)
+          }
+        }
+
+        Button("Clear All History", role: .destructive) {
+          showClearAllConfirmation = true
+        }
+        .disabled(transcriptionCount == 0)
+        .confirmationDialog("Clear all dictation history?", isPresented: $showClearAllConfirmation) {
+          Button("Clear All", role: .destructive) {
+            clearAllHistory()
+          }
+        } message: {
+          Text("This will permanently delete all saved transcriptions and audio recordings. This cannot be undone.")
+        }
+      } header: {
+        Text("Storage")
+      } footer: {
+        Text("Open History from the menu bar to browse past dictations.")
+          .font(.caption)
+      }
+    }
+    .formStyle(.grouped)
+    .scrollIndicators(.never)
+    .padding()
+    .onAppear {
+      loadTranscriptionCount()
+    }
+  }
+
+  private func loadTranscriptionCount() {
+    Task {
+      do {
+        let count = try await DatabaseManager.shared.read { db in
+          try TranscriptionRecord.fetchCount(db)
+        }
+        await MainActor.run {
+          transcriptionCount = count
+        }
+      } catch {
+        transcriptionCount = 0
+      }
+    }
+  }
+
+  private func clearAllHistory() {
+    Task {
+      do {
+        _ = try await DatabaseManager.shared.write { db in
+          try TranscriptionRecord.deleteAll(db)
+        }
+        await MainActor.run {
+          transcriptionCount = 0
+        }
+      } catch {
+        // Silently fail — user can retry
+      }
     }
   }
 }
@@ -1161,9 +1277,6 @@ struct ModelBadge: View {
 struct DictationOutputTab: View {
 
   @Bindable private var settings = SettingsManager.shared
-  @State private var registry = DictionaryRegistry.shared
-  @State private var showAddEntrySheet = false
-
   var body: some View {
     Form {
       Section {
@@ -1178,6 +1291,59 @@ struct DictationOutputTab: View {
         Text("Delivery")
       }
 
+      // MARK: Sound Feedback
+      Section {
+        Toggle("Play sound on success", isOn: $settings.successSoundEnabled)
+          .help("Play an audio cue when transcription is delivered or copied to clipboard")
+
+        if settings.successSoundEnabled {
+          HStack {
+            Text("Sound")
+            Spacer()
+            Text(successSoundDisplayName)
+              .foregroundStyle(.secondary)
+
+            Button("Change\u{2026}") {
+              pickCustomSound()
+            }
+            .buttonStyle(.borderless)
+
+            if !settings.customSuccessSoundPath.isEmpty {
+              Button {
+                settings.customSuccessSoundPath = ""
+              } label: {
+                Image(systemName: "xmark.circle.fill")
+                  .foregroundStyle(.secondary)
+              }
+              .buttonStyle(.plain)
+              .help("Reset to default system sound")
+            }
+          }
+
+          HStack {
+            Button {
+              SoundManager.shared.previewSound()
+            } label: {
+              Label("Preview", systemImage: "speaker.wave.2")
+                .font(.caption)
+            }
+            .buttonStyle(.borderless)
+
+            Spacer()
+
+            Button {
+              NSWorkspace.shared.open(SoundManager.shared.soundsDirectory)
+            } label: {
+              Label("Open Sounds Folder", systemImage: "folder")
+                .font(.caption)
+            }
+            .buttonStyle(.borderless)
+          }
+        }
+      } header: {
+        Text("Sound Feedback")
+      }
+
       Section {
         Toggle("Remove filler words", isOn: $settings.removeFillerWords)
           .help("Automatically strip um, uh, er, ah, hmm from transcriptions (no AI required)")
@@ -1187,64 +1353,28 @@ struct DictationOutputTab: View {
         Text("Text Cleanup")
       }
 
-      // MARK: Custom Dictionary
-      Section {
-        Toggle("Custom dictionary", isOn: $settings.customDictionaryEnabled)
-          .help("Replace specific spoken phrases with custom written forms during transcription")
-
-        if settings.customDictionaryEnabled {
-          if registry.entries.isEmpty {
-            Text("Add words and phrases you use often so VoxNotch always gets them right.")
-              .font(.caption)
-              .foregroundStyle(.secondary)
-              .italic()
-          } else {
-            ForEach(registry.entries) { entry in
-              HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                  Text(entry.writtenForm)
-                    .font(.body)
-                  Text("\"\(entry.spokenForm)\"")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button {
-                  registry.remove(id: entry.id)
-                } label: {
-                  Image(systemName: "trash")
-                    .foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-                .help("Remove this dictionary entry")
-              }
-            }
-          }
-
-          Button {
-            showAddEntrySheet = true
-          } label: {
-            Label("Add Entry", systemImage: "plus")
-              .font(.caption)
-          }
-          .buttonStyle(.borderless)
-        }
-      } header: {
-        Text("Custom Dictionary")
-      } footer: {
-        if settings.customDictionaryEnabled && !registry.entries.isEmpty && !settings.applyITN {
-          Text("Number & currency normalization will also apply when custom dictionary is active.")
-            .font(.caption)
-        }
-      }
     }
     .formStyle(.grouped)
     .scrollIndicators(.never)
     .padding()
-    .sheet(isPresented: $showAddEntrySheet) {
-      DictionaryEntrySheet { entry in
-        registry.add(entry)
-      }
+  }
+
+  private var successSoundDisplayName: String {
+    let path = settings.customSuccessSoundPath
+    if path.isEmpty {
+      return "Default"
+    }
+    return URL(fileURLWithPath: path).lastPathComponent
+  }
+
+  private func pickCustomSound() {
+    let panel = NSOpenPanel()
+    panel.title = "Choose a Success Sound"
+    panel.allowedContentTypes = [.wav, .aiff, .mp3, .mpeg4Audio]
+    panel.allowsMultipleSelection = false
+    panel.canChooseDirectories = false
+    if panel.runModal() == .OK, let url = panel.url {
+      settings.customSuccessSoundPath = url.path
     }
   }
 }
