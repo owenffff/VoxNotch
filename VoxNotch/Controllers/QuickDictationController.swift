@@ -293,7 +293,7 @@ final class QuickDictationController {
         }
         if !isModelDownloaded {
             print("QuickDictationController: Model not downloaded, directing to Settings")
-            withAnimation(.smooth(duration: 0.35)) {
+            withAnimation(.smooth(duration: 0.4)) {
                 appState.modelsNeeded = true
                 appState.modelsNeededMessage = "Not downloaded: \(modelDisplayName)"
             }
@@ -706,7 +706,7 @@ final class QuickDictationController {
             if selected.isDownloaded {
                 NotchManager.shared.showConfirmation(selected.displayName)
             } else {
-                withAnimation(.smooth(duration: 0.35)) {
+                withAnimation(.smooth(duration: 0.4)) {
                     appState.modelsNeeded = true
                     appState.modelsNeededMessage = "Not downloaded: \(selected.displayName)"
                 }
@@ -742,7 +742,7 @@ final class QuickDictationController {
 
         // Update app state — wrapped in withAnimation so all displayPhase
         // transitions in the notch get smooth crossfade.
-        withAnimation(.smooth(duration: 0.35)) {
+        withAnimation(.smooth(duration: 0.4)) {
             switch newState {
             case .idle:
                 appState.isRecording = false

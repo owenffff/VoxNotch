@@ -32,12 +32,12 @@ struct NotchExpandedFallbackView: View {
 
   var body: some View {
     content
-      .frame(maxWidth: .infinity, minHeight: 20, alignment: .center)
+      .frame(maxWidth: .infinity, minHeight: 14, alignment: .center)
       .padding(.horizontal, 14)
-      .padding(.vertical, 6)
+      .padding(.vertical, 3)
       .frame(width: 280)
       .clipped()
-      .animation(.smooth(duration: 0.35), value: displayPhase)
+      .animation(.smooth(duration: 0.4), value: displayPhase)
       .animation(.smooth(duration: 0.2), value: appState.modelSelectionIndex)
       .animation(.smooth(duration: 0.2), value: appState.toneSelectionIndex)
   }
@@ -99,11 +99,11 @@ struct NotchExpandedFallbackView: View {
     HStack(spacing: 10) {
       Circle()
         .fill(.red)
-        .frame(width: 8, height: 8)
+        .frame(width: 6, height: 6)
 
       ScrollingWaveformView(level: appState.audioLevel)
         .frame(maxWidth: .infinity)
-        .frame(height: 20)
+        .frame(height: 14)
 
       Text(formatDuration(appState.recordingDuration))
         .font(.system(size: 13, design: .monospaced))
@@ -120,7 +120,7 @@ struct NotchExpandedFallbackView: View {
         .controlSize(.small)
 
       Text(title)
-        .font(.system(size: 14, weight: .medium))
+        .font(.system(size: 13, weight: .medium))
         .foregroundStyle(.primary)
         .contentTransition(.interpolate)
     }
@@ -164,14 +164,14 @@ struct NotchExpandedFallbackView: View {
 
       if index < candidates.count {
         Text(candidates[index].displayName)
-          .font(.system(size: 14, weight: .semibold))
+          .font(.system(size: 13, weight: .semibold))
           .foregroundStyle(.primary)
           .contentTransition(.interpolate)
           .id("model-\(index)")
           .transition(.opacity)
       } else {
         Text("More Models…")
-          .font(.system(size: 14, weight: .medium))
+          .font(.system(size: 13, weight: .medium))
           .foregroundStyle(.purple)
           .contentTransition(.interpolate)
           .id("model-more")
@@ -204,14 +204,14 @@ struct NotchExpandedFallbackView: View {
 
       if index < candidates.count {
         Text(candidates[index].displayName)
-          .font(.system(size: 14, weight: .semibold))
+          .font(.system(size: 13, weight: .semibold))
           .foregroundStyle(.primary)
           .contentTransition(.interpolate)
           .id("tone-\(index)")
           .transition(.opacity)
       } else {
         Text("More Tones…")
-          .font(.system(size: 14, weight: .medium))
+          .font(.system(size: 13, weight: .medium))
           .foregroundStyle(.purple)
           .contentTransition(.interpolate)
           .id("tone-more")
@@ -225,7 +225,7 @@ struct NotchExpandedFallbackView: View {
   private func transientRow(icon: String, color: Color, title: String) -> some View {
     HStack(spacing: 8) {
       Image(systemName: icon)
-        .font(.system(size: 14))
+        .font(.system(size: 12))
         .foregroundStyle(color)
         .contentTransition(.interpolate)
 

@@ -31,7 +31,7 @@ struct CompactTrailingView: View {
   var body: some View {
     content
       .frame(height: 24)
-      .animation(.smooth(duration: 0.35), value: displayPhase)
+      .animation(.smooth(duration: 0.4), value: displayPhase)
   }
 
   @ViewBuilder
