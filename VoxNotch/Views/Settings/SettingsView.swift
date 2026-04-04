@@ -1389,8 +1389,11 @@ struct DictationAITab: View {
   @State private var llmModelManager = LLMModelManager.shared
   @State private var customOllamaTag: String = ""
   @State private var registry = ToneRegistry.shared
-  @State private var expandedToneID: String? = nil
+  @State private var selectedToneID: String? = nil
   @State private var showNewToneSheet = false
+  @State private var promptText: String = ""
+  @State private var nameText: String = ""
+  @State private var showDeleteConfirm = false
 
   private var availableModels: [String] {
     switch settings.llmProvider {
@@ -1399,36 +1402,31 @@ struct DictationAITab: View {
     }
   }
 
+  private var selectedTone: ToneTemplate? {
+    guard let id = selectedToneID else { return nil }
+    return registry.tone(forID: id)
+  }
+
   var body: some View {
     Form {
-      // MARK: Tones -- always visible
+      // MARK: Tone List
       Section {
         ForEach(registry.tones) { tone in
           ToneRowView(
             tone: tone,
             isActive: settings.activeToneID == tone.id,
-            isExpanded: expandedToneID == tone.id,
-            onSelect: { settings.activeToneID = tone.id },
-            onToggleExpand: {
-              expandedToneID = expandedToneID == tone.id ? nil : tone.id
+            isSelected: selectedToneID == tone.id,
+            onSelect: {
+              selectedToneID = tone.id
+              promptText = tone.prompt
+              nameText = tone.displayName
             },
-            onRevert: { registry.revert(id: tone.id) },
+            onActivate: { settings.activeToneID = tone.id },
             onDelete: {
               registry.remove(id: tone.id)
               if settings.activeToneID == tone.id { settings.activeToneID = "none" }
-              if settings.pinnedToneIDs.contains(tone.id) {
-                settings.pinnedToneIDs.removeAll { $0 == tone.id }
-              }
-            },
-            onUpdateName: { newName in
-              var updated = tone
-              updated.displayName = newName
-              registry.update(updated)
-            },
-            onUpdatePrompt: { newPrompt in
-              var updated = tone
-              updated.prompt = newPrompt
-              registry.update(updated)
+              settings.pinnedToneIDs.removeAll { $0 == tone.id }
+              if selectedToneID == tone.id { selectedToneID = nil }
             }
           )
         }
@@ -1443,6 +1441,124 @@ struct DictationAITab: View {
               .font(.caption)
           }
           .buttonStyle(.borderless)
+        }
+      }
+
+      // MARK: Selected Tone Detail
+      if let tone = selectedTone, tone.id != "none" {
+        Section {
+          VStack(alignment: .leading, spacing: 10) {
+            // Name + action row
+            HStack {
+              if tone.isBuiltIn {
+                Text(tone.displayName)
+                  .font(.headline)
+              } else {
+                TextField("Tone Name", text: $nameText)
+                  .textFieldStyle(.plain)
+                  .font(.headline)
+                  .onChange(of: nameText) { _, newVal in
+                    var updated = tone
+                    updated.displayName = newVal
+                    registry.update(updated)
+                  }
+              }
+
+              Spacer()
+
+              if settings.activeToneID != tone.id {
+                Button("Use This Tone") {
+                  settings.activeToneID = tone.id
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+              } else {
+                Label("Active", systemImage: "checkmark.circle.fill")
+                  .font(.caption)
+                  .foregroundStyle(.green)
+              }
+            }
+
+            // Prompt editor
+            PromptEditorView(text: $promptText)
+              .onChange(of: promptText) { _, newVal in
+                var updated = tone
+                updated.prompt = newVal
+                registry.update(updated)
+              }
+              .onChange(of: selectedToneID) { _, _ in
+                if let t = selectedTone {
+                  promptText = t.prompt
+                  nameText = t.displayName
+                }
+              }
+
+            // Action buttons
+            HStack(spacing: 12) {
+              // Revert (built-in only, when modified)
+              if tone.isBuiltIn, let original = tone.originalPrompt, tone.prompt != original {
+                Button {
+                  registry.revert(id: tone.id)
+                  promptText = original
+                } label: {
+                  Label("Revert to Default", systemImage: "arrow.counterclockwise")
+                    .font(.caption)
+                }
+                .buttonStyle(.borderless)
+              }
+
+              // Duplicate
+              Button {
+                let copy = ToneTemplate(
+                  id: UUID().uuidString,
+                  displayName: "\(tone.displayName) Copy",
+                  prompt: tone.prompt,
+                  isBuiltIn: false,
+                  originalPrompt: nil
+                )
+                registry.add(copy)
+                selectedToneID = copy.id
+                promptText = copy.prompt
+                nameText = copy.displayName
+              } label: {
+                Label("Duplicate as Custom", systemImage: "doc.on.doc")
+                  .font(.caption)
+              }
+              .buttonStyle(.borderless)
+
+              Spacer()
+
+              // Delete (custom only)
+              if !tone.isBuiltIn {
+                Button(role: .destructive) {
+                  showDeleteConfirm = true
+                } label: {
+                  Label("Delete", systemImage: "trash")
+                    .font(.caption)
+                }
+                .buttonStyle(.borderless)
+                .confirmationDialog("Delete \"\(tone.displayName)\"?", isPresented: $showDeleteConfirm) {
+                  Button("Delete", role: .destructive) {
+                    let id = tone.id
+                    registry.remove(id: id)
+                    if settings.activeToneID == id { settings.activeToneID = "none" }
+                    settings.pinnedToneIDs.removeAll { $0 == id }
+                    selectedToneID = nil
+                  }
+                }
+              }
+            }
+          }
+        } header: {
+          Text("Prompt — \(tone.displayName)")
+        }
+      } else if selectedToneID == "none" {
+        Section {
+          Label("No AI processing. Transcribed text is used as-is.", systemImage: "text.quote")
+            .foregroundStyle(.secondary)
+            .font(.callout)
+        } header: {
+          Text("Original")
         }
       }
 
@@ -1622,7 +1738,7 @@ struct DictationAITab: View {
     .scrollIndicators(.never)
     .padding()
     .sheet(isPresented: $showNewToneSheet) {
-      NewToneSheet { name, prompt in
+      NewToneSheet(registry: registry) { name, prompt in
         let tone = ToneTemplate(
           id: UUID().uuidString,
           displayName: name,
@@ -1631,6 +1747,9 @@ struct DictationAITab: View {
           originalPrompt: nil
         )
         registry.add(tone)
+        selectedToneID = tone.id
+        promptText = tone.prompt
+        nameText = tone.displayName
       }
     }
     .onAppear {
@@ -1812,104 +1931,64 @@ private struct ToneRowView: View {
 
   let tone: ToneTemplate
   let isActive: Bool
-  let isExpanded: Bool
+  let isSelected: Bool
   let onSelect: () -> Void
-  let onToggleExpand: () -> Void
-  let onRevert: () -> Void
+  let onActivate: () -> Void
   let onDelete: () -> Void
-  let onUpdateName: (String) -> Void
-  let onUpdatePrompt: (String) -> Void
 
-  @State private var nameText: String = ""
-  @State private var promptText: String = ""
   @State private var showDeleteConfirm = false
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 4) {
-      HStack(spacing: 8) {
-        // Selection indicator
-        Button(action: onSelect) {
-          Image(systemName: isActive ? "largecircle.fill.circle" : "circle")
-            .foregroundStyle(isActive ? Color.accentColor : .secondary)
-        }
-        .buttonStyle(.plain)
+    HStack(spacing: 8) {
+      // Active indicator
+      Button(action: onActivate) {
+        Image(systemName: isActive ? "largecircle.fill.circle" : "circle")
+          .foregroundStyle(isActive ? Color.accentColor : .secondary)
+      }
+      .buttonStyle(.plain)
+      .help(isActive ? "Active tone" : "Set as active tone")
 
-        // Name (editable for custom tones)
-        if tone.isBuiltIn {
-          Text(tone.displayName)
-            .font(.body)
-        } else {
-          TextField("Name", text: $nameText)
-            .textFieldStyle(.plain)
-            .onAppear { nameText = tone.displayName }
-            .onChange(of: nameText) { _, newVal in onUpdateName(newVal) }
-        }
+      // Name
+      Text(tone.displayName)
+        .font(.body)
+        .fontWeight(isSelected ? .semibold : .regular)
 
-        Spacer()
+      Spacer()
 
-        // Revert button (built-in only, when prompt was edited)
-        if tone.isBuiltIn, let original = tone.originalPrompt, tone.prompt != original {
-          Button(action: onRevert) {
-            Image(systemName: "arrow.counterclockwise")
-              .font(.system(size: 11, weight: .medium))
-              .foregroundStyle(.secondary)
-          }
-          .buttonStyle(.plain)
-          .help("Revert to default")
-        }
-
-        // Expand/collapse prompt -- hidden for "Original" (none) which has no prompt
-        if tone.id != "none" {
-          Button(action: onToggleExpand) {
-            Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-              .font(.system(size: 10, weight: .medium))
-              .foregroundStyle(.secondary)
-          }
-          .buttonStyle(.plain)
-        }
-
-        // Delete (custom only)
-        if !tone.isBuiltIn {
-          Button(role: .destructive) {
-            showDeleteConfirm = true
-          } label: {
-            Image(systemName: "trash")
-              .font(.system(size: 11))
-              .foregroundStyle(.red)
-          }
-          .buttonStyle(.plain)
-          .confirmationDialog("Delete \"\(tone.displayName)\"?", isPresented: $showDeleteConfirm) {
-            Button("Delete", role: .destructive) { onDelete() }
-          }
-        }
+      // Badge
+      if tone.isBuiltIn && tone.id != "none" {
+        Text("built-in")
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+          .padding(.horizontal, 6)
+          .padding(.vertical, 2)
+          .background(Color.secondary.opacity(0.1))
+          .clipShape(Capsule())
       }
 
-      if tone.id != "none" {
-        if isExpanded {
-          // Full prompt editor
-          TextEditor(text: $promptText)
-            .frame(height: 100)
-            .font(.system(.caption, design: .monospaced))
-            .scrollContentBackground(.hidden)
-            .background(Color.secondary.opacity(0.08))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .onAppear { promptText = tone.prompt }
-            .onChange(of: promptText) { _, newVal in onUpdatePrompt(newVal) }
-            .onChange(of: tone.prompt) { _, newVal in
-              if promptText != newVal { promptText = newVal }
-            }
-        } else {
-          // Prompt preview
-          Text(tone.prompt.prefix(120) + (tone.prompt.count > 120 ? "\u{2026}" : ""))
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .padding(.leading, 24)
+      // Delete (custom only)
+      if !tone.isBuiltIn {
+        Button(role: .destructive) {
+          showDeleteConfirm = true
+        } label: {
+          Image(systemName: "trash")
+            .font(.system(size: 11))
+            .foregroundStyle(.red.opacity(0.7))
+        }
+        .buttonStyle(.plain)
+        .confirmationDialog("Delete \"\(tone.displayName)\"?", isPresented: $showDeleteConfirm) {
+          Button("Delete", role: .destructive) { onDelete() }
         }
       }
     }
     .padding(.vertical, 2)
     .contentShape(Rectangle())
+    .background(
+      RoundedRectangle(cornerRadius: 6)
+        .fill(isSelected ? Color.accentColor.opacity(0.1) : .clear)
+        .padding(.horizontal, -4)
+    )
+    .onTapGesture { onSelect() }
   }
 }
 
@@ -1917,11 +1996,21 @@ private struct ToneRowView: View {
 
 private struct NewToneSheet: View {
 
+  let registry: ToneRegistry
   let onCreate: (String, String) -> Void
 
   @State private var name = ""
   @State private var prompt = ""
+  @State private var templateBase = "blank"
   @Environment(\.dismiss) private var dismiss
+
+  private var templateOptions: [(id: String, name: String)] {
+    var options: [(id: String, name: String)] = [("blank", "Blank")]
+    for tone in registry.tones where tone.isBuiltIn && tone.id != "none" {
+      options.append((tone.id, "Based on \(tone.displayName)"))
+    }
+    return options
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
@@ -1929,20 +2018,26 @@ private struct NewToneSheet: View {
         .font(.title2)
         .fontWeight(.semibold)
 
-      TextField("Name", text: $name)
-        .textFieldStyle(.roundedBorder)
+      HStack(spacing: 12) {
+        TextField("Name", text: $name)
+          .textFieldStyle(.roundedBorder)
 
-      VStack(alignment: .leading, spacing: 4) {
-        Text("Prompt")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-        TextEditor(text: $prompt)
-          .frame(height: 120)
-          .font(.system(.body, design: .monospaced))
-          .scrollContentBackground(.hidden)
-          .background(Color.secondary.opacity(0.08))
-          .clipShape(RoundedRectangle(cornerRadius: 6))
+        Picker("Start from", selection: $templateBase) {
+          ForEach(templateOptions, id: \.id) { option in
+            Text(option.name).tag(option.id)
+          }
+        }
+        .frame(width: 200)
+        .onChange(of: templateBase) { _, newVal in
+          if newVal == "blank" {
+            prompt = ""
+          } else if let tone = registry.tone(forID: newVal) {
+            prompt = tone.prompt
+          }
+        }
       }
+
+      PromptEditorView(text: $prompt)
 
       HStack {
         Button("Cancel") { dismiss() }
@@ -1955,12 +2050,13 @@ private struct NewToneSheet: View {
           onCreate(name, prompt)
           dismiss()
         }
+        .buttonStyle(.borderedProminent)
         .disabled(name.isEmpty)
         .keyboardShortcut(.return)
       }
     }
     .padding(24)
-    .frame(width: 420, height: 300)
+    .frame(width: 520, height: 520)
   }
 }
 

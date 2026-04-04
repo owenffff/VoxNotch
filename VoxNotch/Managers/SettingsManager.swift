@@ -206,7 +206,7 @@ final class SettingsManager {
       save(promptTemplate, forKey: Keys.promptTemplate)
       /// Update customPrompt when template changes (unless custom)
       if promptTemplate != "custom" {
-        customPrompt = PromptTemplate(rawValue: promptTemplate)?.prompt ?? PromptTemplate.cleanup.prompt
+        customPrompt = PromptTemplate(rawValue: promptTemplate)?.prompt ?? PromptTemplate.formal.prompt
       }
     }
   }
@@ -414,8 +414,8 @@ final class SettingsManager {
     self.llmProvider = defaults.string(forKey: Keys.llmProvider) ?? "local"
     self.llmEndpointURL = defaults.string(forKey: Keys.llmEndpointURL) ?? "http://localhost:11434"
     self.llmModel = defaults.string(forKey: Keys.llmModel) ?? "llama3.2"
-    self.promptTemplate = defaults.string(forKey: Keys.promptTemplate) ?? "cleanup"
-    self.customPrompt = defaults.string(forKey: Keys.customPrompt) ?? PromptTemplate.cleanup.prompt
+    self.promptTemplate = defaults.string(forKey: Keys.promptTemplate) ?? "formal"
+    self.customPrompt = defaults.string(forKey: Keys.customPrompt) ?? PromptTemplate.formal.prompt
 
     /// STT Provider (default to Apple if available, otherwise OpenAI)
     self.sttProvider = defaults.string(forKey: Keys.sttProvider) ?? "apple"
@@ -445,7 +445,7 @@ final class SettingsManager {
       self.activeToneID = "none"
     }
     self.pinnedToneIDs = (defaults.stringArray(forKey: Keys.pinnedToneIDs)
-      ?? ["cleanup", "punctuation", "filler-removal"]).filter { $0 != "none" }
+      ?? ["formal", "casual"]).filter { $0 != "none" }
 
     /// FluidAudio Settings
     self.fluidAudioModel = defaults.string(forKey: Keys.fluidAudioModel) ?? "v2"
@@ -467,9 +467,12 @@ final class SettingsManager {
 
   /// Derive activeToneID from the legacy promptTemplate key on first upgrade
   private static func migratedToneID(defaults: UserDefaults) -> String {
-    let oldTemplate = defaults.string(forKey: "promptTemplate") ?? "cleanup"
+    let oldTemplate = defaults.string(forKey: "promptTemplate") ?? "none"
     // "custom" case is handled by ToneRegistry.migrateCustomTone() -> writes activeToneID directly
-    if oldTemplate == "custom" { return "cleanup" }
+    if oldTemplate == "custom" { return "none" }
+    // Map removed built-in tones to "none"
+    let removedTones: Set<String> = ["cleanup", "punctuation", "filler-removal"]
+    if removedTones.contains(oldTemplate) { return "none" }
     return oldTemplate
   }
 
@@ -534,8 +537,8 @@ final class SettingsManager {
     llmProvider = "local"
     llmEndpointURL = "http://localhost:11434"
     llmModel = "llama3.2"
-    promptTemplate = "cleanup"
-    customPrompt = PromptTemplate.cleanup.prompt
+    promptTemplate = "formal"
+    customPrompt = PromptTemplate.formal.prompt
     sttProvider = "apple"
     openAIAPIKey = nil
     openAIBaseURL = nil
@@ -547,8 +550,8 @@ final class SettingsManager {
     mlxAudioModel = MLXAudioModelVersion.glmAsrNano.rawValue
     speechModel = SpeechModel.defaultModel.rawValue
     pinnedModelIDs = Array(SpeechModel.allCases.prefix(3)).map(\.rawValue)
-    activeToneID = "cleanup"
-    pinnedToneIDs = ["cleanup", "punctuation", "filler-removal"]
+    activeToneID = "none"
+    pinnedToneIDs = ["formal", "casual"]
     fluidAudioModel = "v2"
     historyEnabled = true
     historyRetentionDays = 0

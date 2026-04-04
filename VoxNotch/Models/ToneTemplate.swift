@@ -96,6 +96,19 @@ final class ToneRegistry: @unchecked Sendable {
         )
         save()
       }
+      // Remove deprecated built-in tones (cleanup, punctuation, filler-removal)
+      let removedBuiltInIDs: Set<String> = ["cleanup", "punctuation", "filler-removal"]
+      let hadRemoved = tones.contains { removedBuiltInIDs.contains($0.id) && $0.isBuiltIn }
+      if hadRemoved {
+        tones.removeAll { removedBuiltInIDs.contains($0.id) && $0.isBuiltIn }
+        // If active tone was one of the removed ones, reset to "none"
+        if removedBuiltInIDs.contains(SettingsManager.shared.activeToneID) {
+          SettingsManager.shared.activeToneID = "none"
+        }
+        // Strip removed tones from pinned list
+        SettingsManager.shared.pinnedToneIDs.removeAll { removedBuiltInIDs.contains($0) }
+        save()
+      }
     } else {
       seedBuiltIns()
       migrateCustomTone()

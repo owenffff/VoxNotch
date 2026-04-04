@@ -628,7 +628,7 @@ final class QuickDictationController {
     /// Returns the tones pinned to quick-switch slots, always prepending "Original"
     private func getPinnedTones() -> [ToneTemplate] {
         let ids = SettingsManager.shared.pinnedToneIDs.isEmpty
-            ? ["cleanup", "punctuation", "filler-removal"]
+            ? ["formal", "casual"]
             : SettingsManager.shared.pinnedToneIDs
         let pinned = ids.compactMap { ToneRegistry.shared.tone(forID: $0) }
         if let noneTone = ToneRegistry.shared.tone(forID: "none") {
