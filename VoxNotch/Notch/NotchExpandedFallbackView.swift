@@ -15,27 +15,30 @@ struct NotchExpandedFallbackView: View {
   /// sole animation driver so that simultaneous boolean changes don't
   /// produce competing animations.
   private var displayPhase: DisplayPhase {
-    if appState.isModelSelecting   { return .modelSelecting }
-    if appState.isToneSelecting    { return .toneSelecting }
-    if appState.isRecording        { return .recording }
-    if appState.isWarmingUp        { return .warmingUp }
-    if appState.isTranscribing     { return .transcribing }
-    if appState.isProcessingLLM    { return .processingLLM }
-    if appState.isDownloadingModel { return .downloading }
-    if appState.modelsNeeded       { return .modelsNeeded }
-    if appState.lastError != nil   { return .error }
-    if appState.isShowingSuccess   { return .success }
-    if appState.isShowingClipboard { return .clipboard }
+    if appState.isModelSelecting      { return .modelSelecting }
+    if appState.isToneSelecting       { return .toneSelecting }
+    if appState.isRecording           { return .recording }
+    if appState.isWarmingUp           { return .warmingUp }
+    if appState.isTranscribing        { return .transcribing }
+    if appState.isProcessingLLM       { return .processingLLM }
+    if appState.isDownloadingModel    { return .downloading }
+    if appState.modelsNeeded          { return .modelsNeeded }
+    if appState.lastError != nil      { return .error }
+    if appState.isShowingSuccess      { return .success }
+    if appState.isShowingClipboard    { return .clipboard }
+    if appState.isShowingConfirmation { return .confirmation }
     return .idle
   }
 
   var body: some View {
     content
+      .frame(maxWidth: .infinity, minHeight: 20, alignment: .center)
       .id(displayPhase)
       .transition(.blurReplace)
-      .padding(.horizontal, 20)
-      .padding(.vertical, 12)
-      .frame(minWidth: 280)
+      .padding(.horizontal, 14)
+      .padding(.vertical, 6)
+      .frame(width: 280)
+      .clipped()
       .animation(.smooth(duration: 0.35), value: displayPhase)
       .animation(.smooth(duration: 0.2), value: appState.modelSelectionIndex)
       .animation(.smooth(duration: 0.2), value: appState.toneSelectionIndex)
@@ -81,6 +84,12 @@ struct NotchExpandedFallbackView: View {
         color: .green,
         title: "Copied to clipboard"
       )
+    } else if appState.isShowingConfirmation {
+      transientRow(
+        icon: "checkmark.circle.fill",
+        color: .green,
+        title: appState.confirmationMessage
+      )
     } else {
       EmptyView()
     }
@@ -89,14 +98,14 @@ struct NotchExpandedFallbackView: View {
   // MARK: - Recording
 
   private var recordingView: some View {
-    HStack(spacing: 12) {
+    HStack(spacing: 10) {
       Circle()
         .fill(.red)
-        .frame(width: 10, height: 10)
+        .frame(width: 8, height: 8)
 
       ScrollingWaveformView(level: appState.audioLevel)
         .frame(maxWidth: .infinity)
-        .frame(height: 24)
+        .frame(height: 20)
 
       Text(formatDuration(appState.recordingDuration))
         .font(.system(size: 13, design: .monospaced))
@@ -108,20 +117,21 @@ struct NotchExpandedFallbackView: View {
   // MARK: - Spinner Row
 
   private func spinnerRow(title: String) -> some View {
-    HStack(spacing: 12) {
+    HStack(spacing: 10) {
       ProgressView()
         .controlSize(.small)
 
       Text(title)
         .font(.system(size: 14, weight: .medium))
         .foregroundStyle(.primary)
+        .contentTransition(.interpolate)
     }
   }
 
   // MARK: - Download
 
   private var downloadRow: some View {
-    HStack(spacing: 12) {
+    HStack(spacing: 10) {
       ProgressView(value: appState.modelDownloadProgress)
         .frame(maxWidth: .infinity)
 
@@ -135,7 +145,7 @@ struct NotchExpandedFallbackView: View {
   // MARK: - Model Selection
 
   private var modelSelectionView: some View {
-    HStack(spacing: 16) {
+    HStack(spacing: 12) {
       Image(systemName: "arrow.left")
         .font(.system(size: 11))
         .foregroundStyle(.tertiary)
@@ -158,12 +168,14 @@ struct NotchExpandedFallbackView: View {
         Text(candidates[index].displayName)
           .font(.system(size: 14, weight: .semibold))
           .foregroundStyle(.primary)
+          .contentTransition(.interpolate)
           .id("model-\(index)")
           .transition(.blurReplace)
       } else {
         Text("More Models…")
           .font(.system(size: 14, weight: .medium))
           .foregroundStyle(.purple)
+          .contentTransition(.interpolate)
           .id("model-more")
           .transition(.blurReplace)
       }
@@ -173,7 +185,7 @@ struct NotchExpandedFallbackView: View {
   // MARK: - Tone Selection
 
   private var toneSelectionView: some View {
-    HStack(spacing: 16) {
+    HStack(spacing: 12) {
       Image(systemName: "arrow.up")
         .font(.system(size: 11))
         .foregroundStyle(.tertiary)
@@ -196,12 +208,14 @@ struct NotchExpandedFallbackView: View {
         Text(candidates[index].displayName)
           .font(.system(size: 14, weight: .semibold))
           .foregroundStyle(.primary)
+          .contentTransition(.interpolate)
           .id("tone-\(index)")
           .transition(.blurReplace)
       } else {
         Text("More Tones…")
           .font(.system(size: 14, weight: .medium))
           .foregroundStyle(.purple)
+          .contentTransition(.interpolate)
           .id("tone-more")
           .transition(.blurReplace)
       }
@@ -211,15 +225,18 @@ struct NotchExpandedFallbackView: View {
   // MARK: - Transient Row
 
   private func transientRow(icon: String, color: Color, title: String) -> some View {
-    HStack(spacing: 12) {
+    HStack(spacing: 8) {
       Image(systemName: icon)
-        .font(.system(size: 20))
+        .font(.system(size: 14))
         .foregroundStyle(color)
+        .contentTransition(.interpolate)
 
       Text(title)
-        .font(.system(size: 14, weight: .medium))
+        .font(.system(size: 12, weight: .medium))
         .foregroundStyle(.primary)
-        .lineLimit(2)
+        .lineLimit(1)
+        .truncationMode(.tail)
+        .contentTransition(.interpolate)
     }
   }
 
@@ -245,6 +262,7 @@ private enum DisplayPhase: Equatable {
   case error
   case success
   case clipboard
+  case confirmation
   case modelSelecting
   case toneSelecting
 }

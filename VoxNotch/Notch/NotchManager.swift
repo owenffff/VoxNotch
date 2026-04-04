@@ -62,16 +62,22 @@ final class NotchManager {
 
   func showSuccess() {
     cancelAutoHide()
-    appState.isShowingSuccess = true
-    appState.isShowingClipboard = false
+    withAnimation(.smooth(duration: 0.35)) {
+      appState.isShowingSuccess = true
+      appState.isShowingClipboard = false
+      appState.isShowingConfirmation = false
+    }
     showExpanded()
     scheduleAutoHide(after: 1.5)
   }
 
   func showClipboard() {
     cancelAutoHide()
-    appState.isShowingClipboard = true
-    appState.isShowingSuccess = false
+    withAnimation(.smooth(duration: 0.35)) {
+      appState.isShowingClipboard = true
+      appState.isShowingSuccess = false
+      appState.isShowingConfirmation = false
+    }
     showExpanded()
     scheduleAutoHide(after: 1.5)
   }
@@ -79,7 +85,7 @@ final class NotchManager {
   func showError(_ message: String) {
     cancelAutoHide()
     showExpanded()
-    scheduleAutoHide(after: 3.0)
+    scheduleAutoHide(after: 1.5)
   }
 
   func showModelSelector() {
@@ -95,13 +101,26 @@ final class NotchManager {
   func showModelsNeeded(_ message: String) {
     cancelAutoHide()
     showExpanded()
-    scheduleAutoHide(after: 3.0)
+    scheduleAutoHide(after: 1.5)
+  }
+
+  func showConfirmation(_ message: String) {
+    cancelAutoHide()
+    withAnimation(.smooth(duration: 0.35)) {
+      appState.isShowingConfirmation = true
+      appState.confirmationMessage = message
+      appState.isShowingSuccess = false
+      appState.isShowingClipboard = false
+    }
+    showExpanded()
+    scheduleAutoHide(after: 1.5)
   }
 
   func hide() {
     cancelAutoHide()
     appState.isShowingSuccess = false
     appState.isShowingClipboard = false
+    appState.isShowingConfirmation = false
     Task {
       await notch?.hide()
     }

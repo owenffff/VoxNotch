@@ -105,6 +105,10 @@ final class AppState {
   /// Set by NotchManager when clipboard notification should be shown, cleared on hide
   var isShowingClipboard = false
 
+  /// Brief confirmation shown after model/tone selection before auto-hide
+  var isShowingConfirmation = false
+  var confirmationMessage: String = ""
+
   // MARK: - Status
 
   enum AppStatus: String {

@@ -302,7 +302,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 appState.isDownloadingModel = false
                 if !isReady {
                     appState.modelsNeeded = true
-                    appState.modelsNeededMessage = modelManager.missingModelsDescription()
+                    let speechModelID = SettingsManager.shared.speechModel
+                    let (builtin, custom) = SpeechModel.resolve(speechModelID)
+                    let name = builtin?.displayName ?? custom?.displayName ?? speechModelID
+                    appState.modelsNeededMessage = "Not downloaded: \(name)"
                 }
             }
         }

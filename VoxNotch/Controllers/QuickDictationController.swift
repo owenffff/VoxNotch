@@ -7,6 +7,7 @@
 
 import AppKit
 import Foundation
+import SwiftUI
 
 /// Controller for Quick Dictation mode (hold-to-record, release to transcribe)
 final class QuickDictationController {
@@ -234,8 +235,12 @@ final class QuickDictationController {
     private func startRecording() {
         print("QuickDictationController: startRecording called, state: \(state)")
 
-        // Clear any previous errors when starting a new recording
+        // Clear any stale transient flags from previous interactions
         appState.clearError()
+        appState.modelsNeeded = false
+        appState.isShowingSuccess = false
+        appState.isShowingClipboard = false
+        appState.isShowingConfirmation = false
 
         // If we are already recording, ignore
         if case .recording = state {
@@ -275,8 +280,10 @@ final class QuickDictationController {
         }
         if !isModelDownloaded {
             print("QuickDictationController: Model not downloaded, directing to Settings")
-            appState.modelsNeeded = true
-            appState.modelsNeededMessage = "Model not downloaded: \(modelDisplayName)"
+            withAnimation(.smooth(duration: 0.35)) {
+                appState.modelsNeeded = true
+                appState.modelsNeededMessage = "Not downloaded: \(modelDisplayName)"
+            }
             NotchManager.shared.showModelsNeeded(appState.modelsNeededMessage)
             return
         }
@@ -566,22 +573,30 @@ final class QuickDictationController {
     }
 
     private func confirmToneSelection() {
+        // Clear stale transient flags so they don't flash during transition
+        appState.modelsNeeded = false
+        appState.isShowingSuccess = false
+        appState.isShowingClipboard = false
+        appState.isShowingConfirmation = false
+
         let index = appState.toneSelectionIndex
         let candidates = appState.toneSelectionCandidates
 
         if index >= candidates.count {
-            // "More Tones..." — open Settings → dictationAI panel
+            // "More Tones..." — open Settings (instant dismiss, user is navigating away)
             appState.navigateToSettingsPanel = SettingsPanel.dictationAI.rawValue
             SettingsWindowController.shared.showNavigatingToAIEnhancement()
+            updateState(.idle)
+            NotchManager.shared.hide()
         } else {
-            // Apply the selected tone
             let selected = candidates[index]
             SettingsManager.shared.activeToneID = selected.id
             print("QuickDictationController: Tone switched to \(selected.displayName)")
+            // Set confirmation BEFORE clearing isToneSelecting so displayPhase
+            // transitions directly (.toneSelecting → .confirmation) without .idle flash.
+            NotchManager.shared.showConfirmation(selected.displayName)
+            updateState(.idle)
         }
-
-        updateState(.idle)
-        NotchManager.shared.hide()
     }
 
     // MARK: - Model Selection
@@ -631,23 +646,41 @@ final class QuickDictationController {
     }
 
     private func confirmModelSelection() {
+        // Clear stale transient flags so they don't flash during transition
+        appState.modelsNeeded = false
+        appState.isShowingSuccess = false
+        appState.isShowingClipboard = false
+        appState.isShowingConfirmation = false
+
         let index = appState.modelSelectionIndex
         let candidates = appState.modelSelectionCandidates
 
         if index >= candidates.count {
-            // "More Models..." — open Settings → dictationSpeechModel panel
+            // "More Models..." — open Settings (instant dismiss, user is navigating away)
             appState.navigateToSettingsPanel = SettingsPanel.dictationSpeechModel.rawValue
             SettingsWindowController.shared.showNavigatingToSpeechModel()
+            updateState(.idle)
+            NotchManager.shared.hide()
         } else {
-            // Apply the selected model
             let selected = candidates[index]
             SettingsManager.shared.speechModel = selected.settingsID
             TranscriptionService.shared.reconfigure()
             print("QuickDictationController: Model switched to \(selected.displayName)")
-        }
 
-        updateState(.idle)
-        NotchManager.shared.hide()
+            // Set target state flags BEFORE clearing isModelSelecting via updateState(.idle)
+            // so displayPhase transitions directly (e.g. .modelSelecting → .confirmation)
+            // without flashing through .idle.
+            if selected.isDownloaded {
+                NotchManager.shared.showConfirmation(selected.displayName)
+            } else {
+                withAnimation(.smooth(duration: 0.35)) {
+                    appState.modelsNeeded = true
+                    appState.modelsNeededMessage = "Not downloaded: \(selected.displayName)"
+                }
+                NotchManager.shared.showModelsNeeded(appState.modelsNeededMessage)
+            }
+            updateState(.idle)
+        }
     }
 
     // MARK: - State Management
@@ -674,97 +707,101 @@ final class QuickDictationController {
             }
         }
 
-        // Update app state
+        // Update app state — wrapped in withAnimation so all displayPhase
+        // transitions in the notch get smooth crossfade.
+        withAnimation(.smooth(duration: 0.35)) {
+            switch newState {
+            case .idle:
+                appState.isRecording = false
+                appState.isWarmingUp = false
+                appState.isTranscribing = false
+                appState.isProcessingLLM = false
+                appState.silenceWarningActive = false
+                appState.isModelSelecting = false
+                appState.isToneSelecting = false
+
+            case .recording:
+                appState.isRecording = true
+                appState.isWarmingUp = false
+                appState.isTranscribing = false
+                appState.silenceWarningActive = false
+                appState.isModelSelecting = false
+                appState.isToneSelecting = false
+
+            case .warmingUp:
+                appState.isRecording = false
+                appState.isWarmingUp = true
+                appState.isTranscribing = false
+                appState.silenceWarningActive = false
+                appState.isModelSelecting = false
+                appState.isToneSelecting = false
+
+            case .transcribing:
+                appState.isRecording = false
+                appState.isWarmingUp = false
+                appState.isTranscribing = true
+                appState.silenceWarningActive = false
+                appState.isModelSelecting = false
+                appState.isToneSelecting = false
+
+            case .processingLLM:
+                appState.isRecording = false
+                appState.isWarmingUp = false
+                appState.isTranscribing = false
+                appState.isProcessingLLM = true
+                appState.silenceWarningActive = false
+                appState.isModelSelecting = false
+                appState.isToneSelecting = false
+
+            case .outputting:
+                appState.isRecording = false
+                appState.isWarmingUp = false
+                appState.isTranscribing = false
+                appState.isProcessingLLM = false
+                appState.silenceWarningActive = false
+                appState.isModelSelecting = false
+                appState.isToneSelecting = false
+
+            case .modelSelecting:
+                appState.isRecording = false
+                appState.isWarmingUp = false
+                appState.isTranscribing = false
+                appState.isProcessingLLM = false
+                appState.silenceWarningActive = false
+                appState.isModelSelecting = true
+                appState.isToneSelecting = false
+
+            case .toneSelecting:
+                appState.isRecording = false
+                appState.isWarmingUp = false
+                appState.isTranscribing = false
+                appState.isProcessingLLM = false
+                appState.silenceWarningActive = false
+                appState.isModelSelecting = false
+                appState.isToneSelecting = true
+
+            case .error(let error):
+                appState.isRecording = false
+                appState.isWarmingUp = false
+                appState.isTranscribing = false
+                appState.isProcessingLLM = false
+                appState.lastError = error.localizedDescription
+                appState.silenceWarningActive = false
+                appState.isModelSelecting = false
+                appState.isToneSelecting = false
+            }
+        }
+
+        // NotchManager calls outside withAnimation (they do their own async work)
         switch newState {
-        case .idle:
-            appState.isRecording = false
-            appState.isWarmingUp = false
-            appState.isTranscribing = false
-            appState.isProcessingLLM = false
-            appState.silenceWarningActive = false
-            appState.isModelSelecting = false
-            appState.isToneSelecting = false
-            // Don't call hide() here — transient states handle their own auto-hide
-            break
-
-        case .recording:
-            appState.isRecording = true
-            appState.isWarmingUp = false
-            appState.isTranscribing = false
-            appState.silenceWarningActive = false
-            appState.isModelSelecting = false
-            appState.isToneSelecting = false
-            NotchManager.shared.showRecording()
-
-        case .warmingUp:
-            appState.isRecording = false
-            appState.isWarmingUp = true
-            appState.isTranscribing = false
-            appState.silenceWarningActive = false
-            appState.isModelSelecting = false
-            appState.isToneSelecting = false
-            NotchManager.shared.showTranscribing()
-
-        case .transcribing:
-            appState.isRecording = false
-            appState.isWarmingUp = false
-            appState.isTranscribing = true
-            appState.silenceWarningActive = false
-            appState.isModelSelecting = false
-            appState.isToneSelecting = false
-            NotchManager.shared.showTranscribing()
-
-        case .processingLLM:
-            appState.isRecording = false
-            appState.isWarmingUp = false
-            appState.isTranscribing = false
-            appState.isProcessingLLM = true
-            appState.silenceWarningActive = false
-            appState.isModelSelecting = false
-            appState.isToneSelecting = false
-            NotchManager.shared.showProcessingLLM()
-
-        case .outputting:
-            appState.isRecording = false
-            appState.isWarmingUp = false
-            appState.isTranscribing = false
-            appState.isProcessingLLM = false
-            appState.silenceWarningActive = false
-            appState.isModelSelecting = false
-            appState.isToneSelecting = false
-            // Success/clipboard shown from outputText() method
-            break
-
-        case .modelSelecting:
-            appState.isRecording = false
-            appState.isWarmingUp = false
-            appState.isTranscribing = false
-            appState.isProcessingLLM = false
-            appState.silenceWarningActive = false
-            appState.isModelSelecting = true
-            appState.isToneSelecting = false
-            NotchManager.shared.showModelSelector()
-
-        case .toneSelecting:
-            appState.isRecording = false
-            appState.isWarmingUp = false
-            appState.isTranscribing = false
-            appState.isProcessingLLM = false
-            appState.silenceWarningActive = false
-            appState.isModelSelecting = false
-            appState.isToneSelecting = true
-            NotchManager.shared.showToneSelector()
-
-        case .error(let error):
-            appState.isRecording = false
-            appState.isWarmingUp = false
-            appState.isTranscribing = false
-            appState.isProcessingLLM = false
-            appState.lastError = error.localizedDescription
-            appState.silenceWarningActive = false
-            appState.isModelSelecting = false
-            appState.isToneSelecting = false
-            NotchManager.shared.showError(error.localizedDescription)
+        case .recording:      NotchManager.shared.showRecording()
+        case .warmingUp:      NotchManager.shared.showTranscribing()
+        case .transcribing:   NotchManager.shared.showTranscribing()
+        case .processingLLM:  NotchManager.shared.showProcessingLLM()
+        case .modelSelecting: NotchManager.shared.showModelSelector()
+        case .toneSelecting:  NotchManager.shared.showToneSelector()
+        case .error(let e):   NotchManager.shared.showError(e.localizedDescription)
+        default: break
         }
 
         onStateChange?(newState)

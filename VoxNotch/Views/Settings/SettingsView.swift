@@ -782,7 +782,7 @@ struct DictationSpeechModelTab: View {
 
     appState.isModelReady = isReady
     appState.modelsNeeded = !isReady
-    appState.modelsNeededMessage = isReady ? "" : "Missing: \(displayName)"
+    appState.modelsNeededMessage = isReady ? "" : "Not downloaded: \(displayName)"
   }
 }
 
