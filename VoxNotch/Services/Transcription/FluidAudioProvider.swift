@@ -5,6 +5,7 @@
 //  Transcription provider using FluidAudio's AsrManager for batch transcription
 //
 
+import Accelerate
 import AVFoundation
 import FluidAudio
 import Foundation
@@ -50,6 +51,11 @@ final class FluidAudioProvider: TranscriptionProvider, @unchecked Sendable {
       throw FluidAudioError.modelNotLoaded
     }
 
+    // Check if audio contains actual speech energy (not just silence/noise)
+    guard hasSignificantAudio(audioURL: audioURL) else {
+      throw TranscriptionError.noSpeechDetected
+    }
+
     // Ensure audio meets FluidAudio's 1-second minimum, pad with silence if needed
     let transcriptionURL = try ensureMinimumDuration(audioURL: audioURL)
     let didPad = transcriptionURL != audioURL
@@ -85,14 +91,14 @@ final class FluidAudioProvider: TranscriptionProvider, @unchecked Sendable {
 
     // Build segments from token timings if available
     var segments: [TranscriptSegment]?
-    if let tokens = result.tokens, !tokens.isEmpty {
-      segments = buildSegments(from: tokens)
+    if let timings = result.tokenTimings, !timings.isEmpty {
+      segments = buildSegments(from: timings)
     }
 
     return TranscriptionResult(
       text: text,
       confidence: result.confidence,
-      audioDuration: result.audioDuration ?? processingTime,
+      audioDuration: result.duration,
       processingTime: processingTime,
       provider: name,
       language: language,
@@ -233,26 +239,26 @@ final class FluidAudioProvider: TranscriptionProvider, @unchecked Sendable {
   }
 
   /// Build transcript segments from token timings
-  private func buildSegments(from tokens: [ASRToken]) -> [TranscriptSegment] {
+  private func buildSegments(from timings: [TokenTiming]) -> [TranscriptSegment] {
     var segments: [TranscriptSegment] = []
     var currentText = ""
     var segmentStart: TimeInterval = 0
     var segmentEnd: TimeInterval = 0
     var segmentId = 0
 
-    for token in tokens {
+    for timing in timings {
       // Start new segment on sentence boundaries
-      let isPunctuation = token.text.last?.isPunctuation ?? false
+      let isPunctuation = timing.token.last?.isPunctuation ?? false
 
-      currentText += token.text
-      segmentEnd = token.endTime
+      currentText += timing.token
+      segmentEnd = timing.endTime
 
       if segmentStart == 0 {
-        segmentStart = token.startTime
+        segmentStart = timing.startTime
       }
 
       // Split on sentence-ending punctuation
-      if isPunctuation && (token.text.contains(".") || token.text.contains("?") || token.text.contains("!")) {
+      if isPunctuation && (timing.token.contains(".") || timing.token.contains("?") || timing.token.contains("!")) {
         let trimmedText = currentText.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmedText.isEmpty {
           segments.append(TranscriptSegment(
@@ -281,35 +287,22 @@ final class FluidAudioProvider: TranscriptionProvider, @unchecked Sendable {
 
     return segments
   }
-}
 
-// MARK: - ASR Result Extensions
+  /// Check if audio contains significant energy above noise floor.
+  /// Returns false for near-silent recordings that would produce phantom words.
+  private func hasSignificantAudio(audioURL: URL, thresholdDB: Float = -40.0) -> Bool {
+    guard let audioFile = try? AVAudioFile(forReading: audioURL) else { return true }
+    let frameCount = AVAudioFrameCount(audioFile.length)
+    guard frameCount > 0 else { return false }
+    guard let buffer = AVAudioPCMBuffer(pcmFormat: audioFile.processingFormat, frameCapacity: frameCount) else { return true }
+    guard let _ = try? audioFile.read(into: buffer) else { return true }
+    guard let channelData = buffer.floatChannelData else { return true }
 
-/// Placeholder for FluidAudio ASRResult properties
-/// These will match the actual FluidAudio API
-extension ASRResult {
-  /// Audio duration if available
-  var audioDuration: TimeInterval? {
-    // FluidAudio may provide this - check actual API
-    nil
+    var rms: Float = 0
+    vDSP_rmsqv(channelData[0], 1, &rms, vDSP_Length(buffer.frameLength))
+
+    let db = 20.0 * log10(max(rms, 1e-10))
+    logger.info("Pre-transcription audio energy: \(db, privacy: .public) dB (threshold: \(thresholdDB, privacy: .public) dB)")
+    return db >= thresholdDB
   }
-
-  /// Confidence score if available
-  var confidence: Float? {
-    // FluidAudio may provide this - check actual API
-    nil
-  }
-
-  /// Token-level timing information
-  var tokens: [ASRToken]? {
-    // FluidAudio may provide this - check actual API
-    nil
-  }
-}
-
-/// Token timing information
-struct ASRToken {
-  let text: String
-  let startTime: TimeInterval
-  let endTime: TimeInterval
 }

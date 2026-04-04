@@ -56,8 +56,8 @@ final class QuickDictationController {
     private let textOutputManager: TextOutputManager
     private let appState: AppState
 
-    /// Minimum recording duration to avoid accidental taps
-    private let minimumRecordingDuration: TimeInterval = 0.2
+    /// Minimum recording duration to avoid accidental taps and phantom words
+    private let minimumRecordingDuration: TimeInterval = 0.5
 
     /// Recording start time for duration check
     private var recordingStartTime: Date?
@@ -410,6 +410,15 @@ final class QuickDictationController {
 
                 if text.isEmpty {
                     print("QuickDictationController: Empty transcription, returning to idle")
+                    await MainActor.run {
+                        updateState(.idle)
+                    }
+                    return
+                }
+
+                // Reject low-confidence transcriptions (likely phantom words from noise/silence)
+                if let confidence = result.confidence, confidence < 0.45 {
+                    print("QuickDictationController: Low confidence (\(String(format: "%.2f", confidence))), likely phantom words, discarding")
                     await MainActor.run {
                         updateState(.idle)
                     }
