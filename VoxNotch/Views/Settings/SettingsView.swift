@@ -1299,16 +1299,29 @@ struct DictationAITab: View {
       if settings.activeToneID != "none" {
         Section {
           Picker("Provider", selection: $settings.llmProvider) {
-            if AnyLanguageModelProvider.isAppleIntelligenceAvailable {
-              Text("Apple Intelligence (On-device)").tag("apple")
+            if AnyLanguageModelProvider.isAppleIntelligenceSupported {
+              if AnyLanguageModelProvider.isAppleIntelligenceAvailable {
+                Text("Apple Intelligence (On-device)").tag("apple")
+              } else {
+                Text("Apple Intelligence (Unavailable)").tag("apple")
+              }
             }
             Text("Ollama (Local)").tag("local")
           }
 
           if settings.llmProvider == "apple" {
-            Label("On-device, private, no API costs", systemImage: "checkmark.shield")
-              .foregroundStyle(.green)
+            if AnyLanguageModelProvider.isAppleIntelligenceAvailable {
+              Label("On-device, private, no API costs", systemImage: "checkmark.shield")
+                .foregroundStyle(.green)
+                .font(.caption)
+            } else {
+              Label(
+                "Enable Apple Intelligence in System Settings → Apple Intelligence & Siri",
+                systemImage: "exclamationmark.triangle"
+              )
+              .foregroundStyle(.orange)
               .font(.caption)
+            }
           }
 
           if settings.llmProvider == "local" {

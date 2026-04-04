@@ -108,7 +108,23 @@ final class AnyLanguageModelProvider: LLMProvider, @unchecked Sendable {
   static var isAppleIntelligenceAvailable: Bool {
     #if canImport(FoundationModels)
     if #available(macOS 26.0, *) {
-      return AnyLanguageModel.SystemLanguageModel.default.isAvailable
+      let model = AnyLanguageModel.SystemLanguageModel.default
+      let available = model.isAvailable
+      if !available {
+        let logger = Logger(subsystem: "com.voxnotch", category: "AnyLanguageModelProvider")
+        logger.warning("Apple Intelligence not available. Availability: \(String(describing: model.availability))")
+      }
+      return available
+    }
+    #endif
+    return false
+  }
+
+  /// Whether the current platform supports Apple Intelligence (compile-time + OS version check)
+  static var isAppleIntelligenceSupported: Bool {
+    #if canImport(FoundationModels)
+    if #available(macOS 26.0, *) {
+      return true
     }
     #endif
     return false
