@@ -142,10 +142,16 @@ final class TranscriptionService: @unchecked Sendable {
   /// Primary transcription provider (FluidAudio or MLXAudio)
   private var primaryProvider: TranscriptionProvider?
 
+  /// Lock protecting primaryProvider during reconfigure/transcribe
+  private let providerLock = NSLock()
+
   /// Whether the service is ready
   var isReady: Bool {
     get async {
-      if let primary = primaryProvider {
+      providerLock.lock()
+      let primary = primaryProvider
+      providerLock.unlock()
+      if let primary {
         return await primary.isReady
       }
       let engine = ASREngine(rawValue: settings.asrEngine) ?? .fluidAudio
@@ -158,7 +164,10 @@ final class TranscriptionService: @unchecked Sendable {
 
   /// Current provider name for display
   var currentProviderName: String {
-    primaryProvider?.name ?? "FluidAudio"
+    providerLock.lock()
+    let name = primaryProvider?.name
+    providerLock.unlock()
+    return name ?? "FluidAudio"
   }
 
   /// Whether models are currently downloading
@@ -193,6 +202,7 @@ final class TranscriptionService: @unchecked Sendable {
   func configureProviders() {
     let engine = ASREngine(rawValue: settings.asrEngine) ?? .fluidAudio
 
+    providerLock.lock()
     switch engine {
     case .fluidAudio:
       primaryProvider = FluidAudioProvider()
@@ -202,11 +212,14 @@ final class TranscriptionService: @unchecked Sendable {
       primaryProvider = MLXAudioProvider()
       logger.info("Primary provider: MLX Audio")
     }
+    providerLock.unlock()
   }
 
   /// Reconfigure providers (call after settings change)
   func reconfigure() {
+    providerLock.lock()
     primaryProvider = nil
+    providerLock.unlock()
     configureProviders()
   }
 
@@ -214,7 +227,9 @@ final class TranscriptionService: @unchecked Sendable {
 
   /// Set the primary transcription provider
   func setPrimaryProvider(_ provider: TranscriptionProvider) {
+    providerLock.lock()
     self.primaryProvider = provider
+    providerLock.unlock()
     logger.info("Primary provider set: \(provider.name)")
   }
 
@@ -288,7 +303,10 @@ final class TranscriptionService: @unchecked Sendable {
     _ = try await fluidModelManager.downloadAndLoad(version: version)
 
     // Reinitialize provider with new model
-    if let provider = primaryProvider as? FluidAudioProvider {
+    providerLock.lock()
+    let provider = primaryProvider as? FluidAudioProvider
+    providerLock.unlock()
+    if let provider {
       try await provider.reinitialize()
     }
   }
@@ -298,7 +316,10 @@ final class TranscriptionService: @unchecked Sendable {
     _ = try await mlxModelManager.downloadAndLoad(version: version)
 
     // Reinitialize provider with new model
-    if let provider = primaryProvider as? MLXAudioProvider {
+    providerLock.lock()
+    let provider = primaryProvider as? MLXAudioProvider
+    providerLock.unlock()
+    if let provider {
       try await provider.reinitialize()
     }
   }
@@ -314,8 +335,12 @@ final class TranscriptionService: @unchecked Sendable {
 
     let effectiveLanguage = language ?? (settings.transcriptionLanguage == "auto" ? nil : settings.transcriptionLanguage)
 
-    // Ensure we have a provider
-    guard let provider = primaryProvider else {
+    // Snapshot provider under lock to avoid race with reconfigure()
+    providerLock.lock()
+    let provider = primaryProvider
+    providerLock.unlock()
+
+    guard let provider else {
       throw TranscriptionError.providerNotReady
     }
 

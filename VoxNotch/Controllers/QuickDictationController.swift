@@ -8,10 +8,13 @@
 import AppKit
 import Foundation
 import GRDB
+import os.log
 import SwiftUI
 
 /// Controller for Quick Dictation mode (hold-to-record, release to transcribe)
 final class QuickDictationController {
+
+    private let logger = Logger(subsystem: "com.voxnotch", category: "QuickDictationController")
 
     // MARK: - Types
 
@@ -474,10 +477,14 @@ final class QuickDictationController {
                     if SettingsManager.shared.saveAudioRecordings {
                         let audioDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
                             .appendingPathComponent("VoxNotch/audio", isDirectory: true)
-                        try? FileManager.default.createDirectory(at: audioDir, withIntermediateDirectories: true)
-                        let dest = audioDir.appendingPathComponent("\(UUID().uuidString).wav")
-                        try? FileManager.default.copyItem(at: captureResult.fileURL, to: dest)
-                        audioPath = dest.path
+                        do {
+                            try FileManager.default.createDirectory(at: audioDir, withIntermediateDirectories: true)
+                            let dest = audioDir.appendingPathComponent("\(UUID().uuidString).wav")
+                            try FileManager.default.copyItem(at: captureResult.fileURL, to: dest)
+                            audioPath = dest.path
+                        } catch {
+                            self.logger.error("Failed to save audio recording: \(error.localizedDescription)")
+                        }
                     }
 
                     // Build metadata JSON with tone and output method
@@ -488,8 +495,14 @@ final class QuickDictationController {
                         "tone": toneName,
                         "outputMethod": hasFocusedInput ? "paste" : "clipboard",
                     ]
-                    let metadataJSON = (try? JSONEncoder().encode(metadataDict))
-                        .flatMap { String(data: $0, encoding: .utf8) }
+                    let metadataJSON: String?
+                    do {
+                        let data = try JSONEncoder().encode(metadataDict)
+                        metadataJSON = String(data: data, encoding: .utf8)
+                    } catch {
+                        self.logger.error("Failed to encode history metadata: \(error.localizedDescription)")
+                        metadataJSON = nil
+                    }
 
                     let processedText = (finalText != text) ? finalText : nil
                     var record = TranscriptionRecord(

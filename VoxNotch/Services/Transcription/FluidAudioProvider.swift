@@ -25,6 +25,9 @@ final class FluidAudioProvider: TranscriptionProvider, @unchecked Sendable {
   /// ASR manager instance
   private var asrManager: AsrManager?
 
+  /// Whether ASR manager initialization is in progress (guarded by lock)
+  private var isInitializing = false
+
   /// Lock for thread safety
   private let lock = NSLock()
 
@@ -114,32 +117,59 @@ final class FluidAudioProvider: TranscriptionProvider, @unchecked Sendable {
     try await ensureAsrManagerInitialized()
   }
 
-  /// Ensure ASR manager is initialized with current models
+  /// Ensure ASR manager is initialized with current models.
+  /// Uses `isInitializing` flag to prevent concurrent duplicate initialization (TOCTOU fix).
   private func ensureAsrManagerInitialized() async throws {
     lock.lock()
-    let needsInit = asrManager == nil
-    lock.unlock()
-
-    guard needsInit else { return }
-
-    guard let models = modelManager.getLoadedModels() else {
-      throw FluidAudioError.modelNotLoaded
+    if asrManager != nil {
+      lock.unlock()
+      return
     }
-
-    let manager = AsrManager()
-    try await manager.initialize(models: models)
-
-    lock.lock()
-    asrManager = manager
+    if isInitializing {
+      lock.unlock()
+      // Another task is already initializing — wait for it to finish
+      while true {
+        try await Task.sleep(nanoseconds: 50_000_000) // 50ms
+        lock.lock()
+        if asrManager != nil { lock.unlock(); return }
+        if !isInitializing { break } // initialization failed, we'll retry
+        lock.unlock()
+      }
+      // isInitializing is false and asrManager is nil — fall through to initialize
+    }
+    isInitializing = true
     lock.unlock()
 
-    logger.info("ASR manager initialized")
+    do {
+      guard let models = modelManager.getLoadedModels() else {
+        lock.lock()
+        isInitializing = false
+        lock.unlock()
+        throw FluidAudioError.modelNotLoaded
+      }
+
+      let manager = AsrManager()
+      try await manager.initialize(models: models)
+
+      lock.lock()
+      asrManager = manager
+      isInitializing = false
+      lock.unlock()
+
+      logger.info("ASR manager initialized")
+    } catch {
+      lock.lock()
+      isInitializing = false
+      lock.unlock()
+      throw error
+    }
   }
 
   /// Release ASR manager to free model memory
   func unloadModel() {
     lock.lock()
     asrManager = nil
+    isInitializing = false
     lock.unlock()
     logger.info("ASR manager unloaded")
   }
@@ -148,6 +178,7 @@ final class FluidAudioProvider: TranscriptionProvider, @unchecked Sendable {
   func reinitialize() async throws {
     lock.lock()
     asrManager = nil
+    isInitializing = false
     lock.unlock()
 
     try await ensureAsrManagerInitialized()
@@ -299,11 +330,25 @@ final class FluidAudioProvider: TranscriptionProvider, @unchecked Sendable {
   /// Check if audio contains significant energy above noise floor.
   /// Returns false for near-silent recordings that would produce phantom words.
   private func hasSignificantAudio(audioURL: URL, thresholdDB: Float = -40.0) -> Bool {
-    guard let audioFile = try? AVAudioFile(forReading: audioURL) else { return true }
+    let audioFile: AVAudioFile
+    do {
+      audioFile = try AVAudioFile(forReading: audioURL)
+    } catch {
+      logger.error("Failed to open audio for energy check: \(error.localizedDescription)")
+      return true // Allow transcription to proceed; it will fail with a clearer error
+    }
     let frameCount = AVAudioFrameCount(audioFile.length)
     guard frameCount > 0 else { return false }
-    guard let buffer = AVAudioPCMBuffer(pcmFormat: audioFile.processingFormat, frameCapacity: frameCount) else { return true }
-    guard let _ = try? audioFile.read(into: buffer) else { return true }
+    guard let buffer = AVAudioPCMBuffer(pcmFormat: audioFile.processingFormat, frameCapacity: frameCount) else {
+      logger.error("Failed to allocate buffer for energy check")
+      return true
+    }
+    do {
+      try audioFile.read(into: buffer)
+    } catch {
+      logger.error("Failed to read audio for energy check: \(error.localizedDescription)")
+      return true
+    }
     guard let channelData = buffer.floatChannelData else { return true }
 
     var rms: Float = 0

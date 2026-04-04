@@ -5,6 +5,7 @@
 //  Manages ML model downloads with progress tracking, cancellation, and resumption
 //
 
+import CryptoKit
 import Foundation
 import os.log
 
@@ -332,16 +333,26 @@ final class ModelDownloadManager {
     }
   }
 
+  /// Compute SHA256 checksum of a file using chunked reads (safe for large model files)
   private func calculateChecksum(for url: URL) async -> String? {
-    /// SHA256 checksum calculation
-    guard (try? Data(contentsOf: url)) != nil else {
+    guard let fileHandle = try? FileHandle(forReadingFrom: url) else {
       return nil
     }
+    defer { try? fileHandle.close() }
 
-    /// Use CryptoKit for checksum
-    // TODO: Implement chunked SHA256 for large model files using CryptoKit
-    /// For now, return nil to skip verification (checksums not yet defined)
-    return nil
+    var hasher = SHA256()
+    let chunkSize = 4 * 1024 * 1024 // 4 MB chunks
+
+    while autoreleasepool(invoking: {
+      guard let chunk = try? fileHandle.read(upToCount: chunkSize), !chunk.isEmpty else {
+        return false
+      }
+      hasher.update(data: chunk)
+      return true
+    }) {}
+
+    let digest = hasher.finalize()
+    return digest.map { String(format: "%02x", $0) }.joined()
   }
 }
 

@@ -11,6 +11,9 @@ import AVFoundation
 import CoreAudio
 import UniformTypeIdentifiers
 import GRDB
+import os.log
+
+private let settingsLogger = Logger(subsystem: "com.voxnotch", category: "SettingsView")
 
 // MARK: - Settings Panel
 
@@ -198,8 +201,16 @@ struct GeneralSettingsTab: View {
         .disabled(totalBytes == 0)
         .confirmationDialog("Delete all downloaded models?", isPresented: $showDeleteAllConfirmation) {
           Button("Delete All", role: .destructive) {
-            try? modelManager.deleteAllModels()
-            try? mlxModelManager.deleteAllModels()
+            do {
+              try modelManager.deleteAllModels()
+            } catch {
+              settingsLogger.error("Failed to delete FluidAudio models: \(error.localizedDescription)")
+            }
+            do {
+              try mlxModelManager.deleteAllModels()
+            } catch {
+              settingsLogger.error("Failed to delete MLX Audio models: \(error.localizedDescription)")
+            }
             modelManager.refreshAllModelStates()
             mlxModelManager.refreshAllModelStates()
           }
@@ -849,21 +860,26 @@ struct DictationSpeechModelTab: View {
 
   private func downloadModel(_ model: SpeechModel) {
     Task {
-      switch model.engine {
-      case .fluidAudio:
-        guard let version = model.fluidAudioVersion else { return }
-        try? await fluidModelManager.downloadBatchModel(version: version)
-        await MainActor.run {
-          fluidModelManager.refreshAllModelStates()
-          refreshModelsNeeded()
+      do {
+        switch model.engine {
+        case .fluidAudio:
+          guard let version = model.fluidAudioVersion else { return }
+          try await fluidModelManager.downloadBatchModel(version: version)
+          await MainActor.run {
+            fluidModelManager.refreshAllModelStates()
+            refreshModelsNeeded()
+          }
+        case .mlxAudio:
+          guard let version = model.mlxAudioVersion else { return }
+          try await mlxModelManager.downloadAndLoad(version: version)
+          await MainActor.run {
+            mlxModelManager.refreshAllModelStates()
+            refreshModelsNeeded()
+          }
         }
-      case .mlxAudio:
-        guard let version = model.mlxAudioVersion else { return }
-        try? await mlxModelManager.downloadAndLoad(version: version)
-        await MainActor.run {
-          mlxModelManager.refreshAllModelStates()
-          refreshModelsNeeded()
-        }
+      } catch {
+        settingsLogger.error("Model download failed: \(error.localizedDescription)")
+        // Model managers already update their state to .failed internally
       }
     }
   }
@@ -879,7 +895,11 @@ struct DictationSpeechModelTab: View {
 
   private func downloadCustomModel(_ model: CustomSpeechModel) {
     Task {
-      try? await mlxModelManager.downloadAndLoadCustom(model: model)
+      do {
+        try await mlxModelManager.downloadAndLoadCustom(model: model)
+      } catch {
+        settingsLogger.error("Custom model download failed (\(model.hfRepoID)): \(error.localizedDescription)")
+      }
       await MainActor.run { refreshModelsNeeded() }
     }
   }

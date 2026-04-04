@@ -5,6 +5,7 @@
 //  Manages FluidAudio ASR model downloads and lifecycle
 //
 
+import CryptoKit
 import FluidAudio
 import Foundation
 import os.log
@@ -166,6 +167,16 @@ final class FluidAudioModelManager: @unchecked Sendable {
     do {
       // Download and load models using FluidAudio API
       let models = try await AsrModels.downloadAndLoad(version: version.asrModelVersion)
+
+      // Verify integrity against saved manifest, or create one for first download
+      if !verifyChecksumManifest(for: version) {
+        await MainActor.run {
+          modelStates[version] = .failed(message: "Model files corrupted (checksum mismatch)")
+        }
+        logger.error("Checksum verification failed for \(version.rawValue)")
+        throw FluidAudioError.modelDownloadFailed("Model files corrupted (checksum mismatch)")
+      }
+      saveChecksumManifest(for: version)
 
       lock.withLock {
         loadedModels = models
@@ -417,6 +428,16 @@ final class FluidAudioModelManager: @unchecked Sendable {
 
       let models = try await AsrModels.downloadAndLoad(version: version.asrModelVersion)
 
+      // Verify integrity against saved manifest, or create one for first download
+      if !verifyChecksumManifest(for: version) {
+        await MainActor.run {
+          modelStates[version] = .failed(message: "Model files corrupted (checksum mismatch)")
+        }
+        logger.error("Checksum verification failed for \(version.rawValue)")
+        throw FluidAudioError.modelDownloadFailed("Model files corrupted (checksum mismatch)")
+      }
+      saveChecksumManifest(for: version)
+
       lock.withLock {
         loadedModels = models
         loadedVersion = version
@@ -612,6 +633,93 @@ final class FluidAudioModelManager: @unchecked Sendable {
     total += directorySize(at: diarizationModelsDirectory())
 
     return total
+  }
+
+  // MARK: - Integrity Verification
+
+  /// Compute SHA256 of a single file using chunked reads (safe for large model files)
+  private func sha256(of url: URL) -> String? {
+    guard let fileHandle = try? FileHandle(forReadingFrom: url) else { return nil }
+    defer { try? fileHandle.close() }
+
+    var hasher = SHA256()
+    let chunkSize = 4 * 1024 * 1024 // 4 MB
+
+    while autoreleasepool(invoking: {
+      guard let chunk = try? fileHandle.read(upToCount: chunkSize), !chunk.isEmpty else {
+        return false
+      }
+      hasher.update(data: chunk)
+      return true
+    }) {}
+
+    return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+  }
+
+  /// Build a checksum manifest for all files in a model directory.
+  /// Returns a dictionary of relative-path → SHA256.
+  private func buildManifest(for directory: URL) -> [String: String] {
+    let fm = FileManager.default
+    guard let enumerator = fm.enumerator(
+      at: directory,
+      includingPropertiesForKeys: [.isRegularFileKey],
+      options: [.skipsHiddenFiles]
+    ) else { return [:] }
+
+    var manifest: [String: String] = [:]
+    for case let fileURL as URL in enumerator {
+      guard let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey]),
+            values.isRegularFile == true,
+            fileURL.lastPathComponent != ".voxnotch_checksums.json"
+      else { continue }
+
+      if let hash = sha256(of: fileURL) {
+        let relativePath = fileURL.path.replacingOccurrences(of: directory.path + "/", with: "")
+        manifest[relativePath] = hash
+      }
+    }
+    return manifest
+  }
+
+  /// Save a checksum manifest alongside the model directory for future verification.
+  func saveChecksumManifest(for version: FluidAudioModelVersion) {
+    let cacheDir = AsrModels.defaultCacheDirectory(for: version.asrModelVersion)
+    let manifest = buildManifest(for: cacheDir)
+    guard !manifest.isEmpty else { return }
+
+    let manifestURL = cacheDir.appendingPathComponent(".voxnotch_checksums.json")
+    if let data = try? JSONEncoder().encode(manifest) {
+      try? data.write(to: manifestURL, options: .atomic)
+      logger.info("Saved checksum manifest for \(version.rawValue) (\(manifest.count) files)")
+    }
+  }
+
+  /// Verify a downloaded model's files against its saved checksum manifest.
+  /// Returns true if no manifest exists (first download) or all checksums match.
+  func verifyChecksumManifest(for version: FluidAudioModelVersion) -> Bool {
+    let cacheDir = AsrModels.defaultCacheDirectory(for: version.asrModelVersion)
+    let manifestURL = cacheDir.appendingPathComponent(".voxnotch_checksums.json")
+
+    guard let data = try? Data(contentsOf: manifestURL),
+          let savedManifest = try? JSONDecoder().decode([String: String].self, from: data)
+    else {
+      return true // No manifest yet — trust first download
+    }
+
+    let currentManifest = buildManifest(for: cacheDir)
+
+    for (path, expectedHash) in savedManifest {
+      guard let actualHash = currentManifest[path] else {
+        logger.error("Checksum verification failed: missing file \(path)")
+        return false
+      }
+      if actualHash != expectedHash {
+        logger.error("Checksum verification failed: \(path) hash mismatch")
+        return false
+      }
+    }
+
+    return true
   }
 
   /// Calculate size of a directory in bytes
