@@ -74,6 +74,7 @@ struct ScrollingWaveformView: View {
         )
       }
     }
+    .drawingGroup()
     .onReceive(Timer.publish(every: 1.0 / 60.0, on: .main, in: .common).autoconnect()) { _ in
       if level > envelope {
         envelope = level

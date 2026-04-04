@@ -2,7 +2,7 @@
 //  CompactLeadingView.swift
 //  VoxNotch
 //
-//  Left-side content for DynamicNotchKit compact mode
+//  Left-side compact content for the notch UI
 //
 
 import SwiftUI

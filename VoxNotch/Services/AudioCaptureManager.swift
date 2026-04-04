@@ -394,7 +394,7 @@ final class AudioCaptureManager {
     /// Tracks whether the tap is currently installed on the input node
     private var isTapInstalled = false
 
-    /// Throttle audio level updates to 30fps max
+    /// Throttle audio level updates to 60fps max
     private var lastAudioLevelUpdate = Date.distantPast
 
     // MARK: - Permission
@@ -831,7 +831,7 @@ final class AudioCaptureManager {
         let bands = computeFrequencyBands(from: channelDataValueArray, sampleRate: sampleRate)
 
         let now = Date()
-        if now.timeIntervalSince(lastAudioLevelUpdate) >= 1.0 / 30.0 {
+        if now.timeIntervalSince(lastAudioLevelUpdate) >= 1.0 / 60.0 {
             lastAudioLevelUpdate = now
             DispatchQueue.main.async {
                 AppState.shared.audioLevel = normalizedLevel

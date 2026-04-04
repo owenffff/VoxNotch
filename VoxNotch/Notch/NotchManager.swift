@@ -2,45 +2,78 @@
 //  NotchManager.swift
 //  VoxNotch
 //
-//  Owns the DynamicNotch instance and provides imperative show/hide API.
-//  Uses compact mode (leading / trailing) on notch Macs and expanded
-//  fallback on non-notch Macs.
+//  Owns a persistent NotchPanel and drives expand/collapse via SwiftUI
+//  state changes. The panel is created once and never destroyed — only
+//  the SwiftUI content inside animates, keeping the window frame fixed.
 //
 
 import AppKit
-import DynamicNotchKit
 import SwiftUI
 
-@MainActor
+// MARK: - Notch State
+
+enum NotchState: Equatable {
+  case hidden
+  case expanded
+}
+
+// MARK: - NotchManager
+
+@MainActor @Observable
 final class NotchManager {
 
   static let shared = NotchManager()
 
-  private var notch: DynamicNotch<
-    NotchExpandedFallbackView,
-    CompactLeadingView,
-    CompactTrailingView
-  >?
+  // MARK: - Observable State
 
+  var notchState: NotchState = .hidden
+
+  /// Physical notch dimensions (or sensible defaults for non-notch Macs).
+  var physicalNotchSize: CGSize = CGSize(width: 185, height: 32)
+
+  /// Whether the current display has a physical camera notch.
+  var hasPhysicalNotch: Bool = true
+
+  // MARK: - Private
+
+  private var panel: NotchPanel?
   private var autoHideTask: Task<Void, Never>?
+  private var orderOutTask: Task<Void, Never>?
   private let appState = AppState.shared
+
+  /// Fixed panel size — large enough for expanded content + shadow padding.
+  private static let panelSize = CGSize(width: 640, height: 250)
 
   private init() {}
 
   // MARK: - Setup
 
   func setup() {
-    let expandedView = NotchExpandedFallbackView()
-    let leadingView = CompactLeadingView()
-    let trailingView = CompactTrailingView()
-
-    notch = DynamicNotch(
-      hoverBehavior: [.keepVisible],
-      style: .auto,
-      expanded: { expandedView },
-      compactLeading: { leadingView },
-      compactTrailing: { trailingView }
+    let panel = NotchPanel(
+      contentRect: NSRect(origin: .zero, size: Self.panelSize),
+      styleMask: [.borderless, .nonactivatingPanel, .utilityWindow],
+      backing: .buffered,
+      defer: false
     )
+
+    let hostingView = NSHostingView(rootView: NotchContentView())
+    hostingView.frame = NSRect(origin: .zero, size: Self.panelSize)
+    panel.contentView = hostingView
+
+    self.panel = panel
+    detectPhysicalNotch()
+
+    // Reposition when displays change.
+    NotificationCenter.default.addObserver(
+      forName: NSApplication.didChangeScreenParametersNotification,
+      object: nil,
+      queue: .main
+    ) { [weak self] _ in
+      Task { @MainActor in
+        self?.detectPhysicalNotch()
+        self?.repositionPanel()
+      }
+    }
   }
 
   // MARK: - Show Methods
@@ -123,27 +156,85 @@ final class NotchManager {
       appState.isShowingClipboard = false
       appState.isShowingConfirmation = false
     }
-    Task {
-      await notch?.hide()
+    withAnimation(.spring(response: 0.45, dampingFraction: 1.0)) {
+      notchState = .hidden
     }
+    scheduleOrderOut()
   }
 
   // MARK: - Private
 
-  /// Show the expanded notch (drops below physical notch) for transient messages.
-  /// On non-notch Macs, shows the floating panel.
+  /// Show the expanded notch. If already expanded this is a no-op —
+  /// content transitions are driven by AppState / displayPhase, not
+  /// by re-expanding the panel.
   private func showExpanded() {
-    guard
-      let notch,
-      let screen = NSScreen.main
-    else {
-      return
-    }
+    // Cancel any pending orderOut so it can't race with this expand.
+    cancelOrderOut()
+    ensurePanelVisible()
 
-    Task {
-      await notch.expand(on: screen)
+    guard notchState != .expanded else { return }
+    withAnimation(.spring(response: 0.42, dampingFraction: 0.8)) {
+      notchState = .expanded
     }
   }
+
+  private func ensurePanelVisible() {
+    guard let panel else { return }
+    repositionPanel()
+    if !panel.isVisible {
+      panel.orderFrontRegardless()
+    }
+  }
+
+  private func repositionPanel() {
+    guard let panel, let screen = NSScreen.main else { return }
+    let screenFrame = screen.frame
+    let origin = NSPoint(
+      x: screenFrame.origin.x + (screenFrame.width - Self.panelSize.width) / 2,
+      y: screenFrame.origin.y + screenFrame.height - Self.panelSize.height
+    )
+    panel.setFrameOrigin(origin)
+  }
+
+  /// Detect the physical notch on the main screen and update sizing.
+  private func detectPhysicalNotch() {
+    guard let screen = NSScreen.main else { return }
+
+    if let topLeft = screen.auxiliaryTopLeftArea?.width,
+       let topRight = screen.auxiliaryTopRightArea?.width
+    {
+      let notchWidth = screen.frame.width - topLeft - topRight
+      let notchHeight = screen.safeAreaInsets.top
+      hasPhysicalNotch = true
+      physicalNotchSize = CGSize(width: notchWidth, height: notchHeight)
+    } else {
+      hasPhysicalNotch = false
+      let menuBarHeight = screen.frame.maxY - screen.visibleFrame.maxY
+      physicalNotchSize = CGSize(
+        width: 200,
+        height: max(menuBarHeight, 24)
+      )
+    }
+  }
+
+  // MARK: - Order Out (tracked, cancellable)
+
+  /// Schedule the panel to be ordered out after the collapse animation.
+  private func scheduleOrderOut() {
+    cancelOrderOut()
+    orderOutTask = Task {
+      try? await Task.sleep(for: .seconds(0.5))
+      guard !Task.isCancelled else { return }
+      panel?.orderOut(nil)
+    }
+  }
+
+  private func cancelOrderOut() {
+    orderOutTask?.cancel()
+    orderOutTask = nil
+  }
+
+  // MARK: - Auto Hide
 
   private func scheduleAutoHide(after seconds: Double) {
     autoHideTask = Task {
@@ -154,7 +245,10 @@ final class NotchManager {
         appState.isShowingClipboard = false
         appState.isShowingConfirmation = false
       }
-      await notch?.hide()
+      withAnimation(.spring(response: 0.45, dampingFraction: 1.0)) {
+        notchState = .hidden
+      }
+      scheduleOrderOut()
     }
   }
 

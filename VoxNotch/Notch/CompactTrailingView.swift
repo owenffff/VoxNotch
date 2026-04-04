@@ -2,7 +2,7 @@
 //  CompactTrailingView.swift
 //  VoxNotch
 //
-//  Right-side content for DynamicNotchKit compact mode
+//  Right-side compact content for the notch UI
 //
 
 import SwiftUI

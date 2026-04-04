@@ -34,12 +34,10 @@ struct NotchExpandedFallbackView: View {
     content
       .frame(maxWidth: .infinity, minHeight: 14, alignment: .center)
       .padding(.horizontal, 14)
-      .padding(.vertical, 3)
+      .padding(.vertical, 2)
       .frame(width: 280)
       .clipped()
       .animation(.smooth(duration: 0.4), value: displayPhase)
-      .animation(.smooth(duration: 0.2), value: appState.modelSelectionIndex)
-      .animation(.smooth(duration: 0.2), value: appState.toneSelectionIndex)
   }
 
   @ViewBuilder
@@ -68,7 +66,8 @@ struct NotchExpandedFallbackView: View {
       transientRow(
         icon: "xmark.circle.fill",
         color: .red,
-        title: error
+        title: shortenError(error),
+        compact: true
       )
     } else if appState.isShowingSuccess {
       transientRow(
@@ -122,7 +121,6 @@ struct NotchExpandedFallbackView: View {
       Text(title)
         .font(.system(size: 13, weight: .medium))
         .foregroundStyle(.primary)
-        .contentTransition(.interpolate)
     }
   }
 
@@ -155,6 +153,7 @@ struct NotchExpandedFallbackView: View {
         .font(.system(size: 11))
         .foregroundStyle(.tertiary)
     }
+    .animation(.smooth(duration: 0.2), value: appState.modelSelectionIndex)
   }
 
   private var modelNameLabel: some View {
@@ -166,14 +165,12 @@ struct NotchExpandedFallbackView: View {
         Text(candidates[index].displayName)
           .font(.system(size: 13, weight: .semibold))
           .foregroundStyle(.primary)
-          .contentTransition(.interpolate)
           .id("model-\(index)")
           .transition(.opacity)
       } else {
         Text("More Models…")
           .font(.system(size: 13, weight: .medium))
           .foregroundStyle(.purple)
-          .contentTransition(.interpolate)
           .id("model-more")
           .transition(.opacity)
       }
@@ -195,6 +192,7 @@ struct NotchExpandedFallbackView: View {
         .font(.system(size: 11))
         .foregroundStyle(.tertiary)
     }
+    .animation(.smooth(duration: 0.2), value: appState.toneSelectionIndex)
   }
 
   private var toneNameLabel: some View {
@@ -206,14 +204,12 @@ struct NotchExpandedFallbackView: View {
         Text(candidates[index].displayName)
           .font(.system(size: 13, weight: .semibold))
           .foregroundStyle(.primary)
-          .contentTransition(.interpolate)
           .id("tone-\(index)")
           .transition(.opacity)
       } else {
         Text("More Tones…")
           .font(.system(size: 13, weight: .medium))
           .foregroundStyle(.purple)
-          .contentTransition(.interpolate)
           .id("tone-more")
           .transition(.opacity)
       }
@@ -222,23 +218,34 @@ struct NotchExpandedFallbackView: View {
 
   // MARK: - Transient Row
 
-  private func transientRow(icon: String, color: Color, title: String) -> some View {
+  private func transientRow(icon: String, color: Color, title: String, compact: Bool = false) -> some View {
     HStack(spacing: 8) {
       Image(systemName: icon)
-        .font(.system(size: 12))
+        .font(.system(size: compact ? 10 : 12))
         .foregroundStyle(color)
-        .contentTransition(.interpolate)
 
       Text(title)
-        .font(.system(size: 12, weight: .medium))
+        .font(.system(size: compact ? 10 : 12, weight: .medium))
         .foregroundStyle(.primary)
         .lineLimit(1)
         .truncationMode(.tail)
-        .contentTransition(.interpolate)
     }
   }
 
   // MARK: - Helpers
+
+  private func shortenError(_ message: String) -> String {
+    var msg = message
+    // Strip common localizedDescription boilerplate
+    for prefix in ["The operation couldn't be completed. ", "The operation could not be completed. "] {
+      if msg.hasPrefix(prefix) { msg = String(msg.dropFirst(prefix.count)) }
+    }
+    // Remove redundant parenthesised error domain/code suffixes
+    if let range = msg.range(of: #"\s*\([^)]*error\s+\d+[^)]*\)\.?$"#, options: [.regularExpression, .caseInsensitive]) {
+      msg = String(msg[msg.startIndex..<range.lowerBound])
+    }
+    return msg
+  }
 
   private func formatDuration(_ seconds: TimeInterval) -> String {
     let mins = Int(seconds) / 60
