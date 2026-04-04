@@ -33,8 +33,6 @@ struct NotchExpandedFallbackView: View {
   var body: some View {
     content
       .frame(maxWidth: .infinity, minHeight: 20, alignment: .center)
-      .id(displayPhase)
-      .transition(.opacity)
       .padding(.horizontal, 14)
       .padding(.vertical, 6)
       .frame(width: 280)

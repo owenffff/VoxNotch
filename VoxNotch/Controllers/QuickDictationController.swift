@@ -75,6 +75,12 @@ final class QuickDictationController {
     /// Timer that updates appState.recordingDuration every second while recording
     private var durationTimer: Timer?
 
+    /// Timestamp of last session cancel — used to enforce a cooldown between rapid presses
+    private var lastCancelTime: Date?
+
+    /// Cooldown after a cancel before accepting a new recording (prevents frame drops on rapid presses)
+    private let cancelCooldown: TimeInterval = 0.3
+
     // MARK: - Initialization
 
     private init() {
@@ -244,6 +250,13 @@ final class QuickDictationController {
 
         // If we are already recording, ignore
         if case .recording = state {
+            return
+        }
+
+        // Cooldown after a recent cancel to prevent frame drops on rapid presses
+        if let lastCancel = lastCancelTime,
+           Date().timeIntervalSince(lastCancel) < cancelCooldown {
+            print("QuickDictationController: Ignoring startRecording during cooldown")
             return
         }
 
@@ -522,16 +535,17 @@ final class QuickDictationController {
         durationTimer?.invalidate()
         durationTimer = nil
         appState.recordingDuration = 0
-        // Transition to idle without triggering NotchManager.hide()
+        // Transition to idle without triggering NotchManager.hide().
+        // Don't clear appState.isRecording here — the subsequent updateState()
+        // call handles it inside withAnimation for a smooth crossfade.
         state = .idle
-        appState.isRecording = false
-        appState.silenceWarningActive = false
     }
 
     /// Force cancel any active recording or transcription.
     /// Increments currentSessionID to invalidate any in-flight transcription tasks.
     private func cancelCurrentSession() {
         print("QuickDictationController: Cancelling current session")
+        lastCancelTime = Date()
         currentSessionID = UUID()
         savedFrontmostApp = nil
 

@@ -182,13 +182,20 @@ final class TextOutputManager {
                 "com.google.Chrome",
                 "company.thebrowser.Browser", // Arc
                 "com.microsoft.VSCode",
-                "com.tinyspeck.slackmacgap",
+                "com.tinyspeck.slackmacgap",  // Slack
                 "com.hnc.Discord",
                 "com.apple.Terminal",
                 "com.googlecode.iterm2",
                 "com.brave.Browser",
-                "com.microsoft.edgemac",
-                "org.mozilla.firefox"
+                "com.microsoft.edgemac",       // Edge
+                "org.mozilla.firefox",
+                "com.microsoft.teams",         // Teams (old & new/teams2)
+                "com.anthropic.claudefordesktop", // Claude Desktop
+                "md.obsidian",                 // Obsidian
+                "us.zoom.xos",                 // Zoom
+                "notion.id",                   // Notion
+                "com.figma.desktop",           // Figma
+                "com.todesktop.230313mzl4w4u92" // Linear
             ]
 
             if whitelistedPrefixes.contains(where: { bundleID.hasPrefix($0) }) {
