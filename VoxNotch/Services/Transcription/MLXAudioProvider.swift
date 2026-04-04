@@ -94,18 +94,16 @@ final class MLXAudioProvider: TranscriptionProvider, @unchecked Sendable {
   /// Priority: (1) model already in manager memory, (2) custom model by loaderClass,
   /// (3) built-in model by loaderClass. All paths store the result in `self.model`.
   private func ensureModelLoaded() async throws {
-    lock.lock()
-    let needsLoad = model == nil
-    lock.unlock()
+    let needsLoad = lock.withLock { model == nil }
 
     guard needsLoad else { return }
 
     /// 1. Use a model already loaded by the manager (fastest path).
     if let existing = modelManager.getLoadedModel() {
-      lock.lock()
-      model = existing
-      isModelLoaded = true
-      lock.unlock()
+      lock.withLock {
+        model = existing
+        isModelLoaded = true
+      }
       logger.info("Using existing MLX Audio model from manager")
       return
     }
@@ -124,10 +122,10 @@ final class MLXAudioProvider: TranscriptionProvider, @unchecked Sendable {
       case .qwen3ASR:
         loaded = try await Qwen3ASRModel.fromPretrained(custom.hfRepoID)
       }
-      lock.lock()
-      model = loaded
-      isModelLoaded = true
-      lock.unlock()
+      lock.withLock {
+        model = loaded
+        isModelLoaded = true
+      }
       logger.info("Custom MLX Audio model loaded successfully")
       return
     }
@@ -145,10 +143,10 @@ final class MLXAudioProvider: TranscriptionProvider, @unchecked Sendable {
     // downloadAndLoad sets loadedModel in the manager and returns; then we pull it out.
     _ = try await modelManager.downloadAndLoad(version: version)
     if let loaded = modelManager.getLoadedModel() {
-      lock.lock()
-      model = loaded
-      isModelLoaded = true
-      lock.unlock()
+      lock.withLock {
+        model = loaded
+        isModelLoaded = true
+      }
     }
 
     logger.info("MLX Audio model loaded successfully")
@@ -157,12 +155,12 @@ final class MLXAudioProvider: TranscriptionProvider, @unchecked Sendable {
 
   /// Unload the model to free memory
   func unloadModel() {
-    lock.lock()
-    #if canImport(MLXAudioSTT)
-    model = nil
-    #endif
-    isModelLoaded = false
-    lock.unlock()
+    lock.withLock {
+      #if canImport(MLXAudioSTT)
+      model = nil
+      #endif
+      isModelLoaded = false
+    }
 
     logger.info("MLX Audio model unloaded")
   }

@@ -131,9 +131,7 @@ final class FluidAudioModelManager: @unchecked Sendable {
   /// - Returns: The loaded AsrModels
   @discardableResult
   func downloadAndLoad(version: FluidAudioModelVersion) async throws -> AsrModels {
-    lock.lock()
-    let currentState = modelStates[version]
-    lock.unlock()
+    let currentState = lock.withLock { modelStates[version] }
 
     // Already ready, return cached models
     if currentState == .ready, let models = loadedModels, loadedVersion == version {
@@ -146,9 +144,7 @@ final class FluidAudioModelManager: @unchecked Sendable {
       let deadline = Date().addingTimeInterval(300) // 5-minute timeout
       while Date() < deadline {
         try await Task.sleep(nanoseconds: 500_000_000)  // 500ms
-        lock.lock()
-        let state = modelStates[version]
-        lock.unlock()
+        let state = lock.withLock { modelStates[version] }
         if case .ready = state, let models = loadedModels {
           return models
         }
@@ -171,10 +167,10 @@ final class FluidAudioModelManager: @unchecked Sendable {
       // Download and load models using FluidAudio API
       let models = try await AsrModels.downloadAndLoad(version: version.asrModelVersion)
 
-      lock.lock()
-      loadedModels = models
-      loadedVersion = version
-      lock.unlock()
+      lock.withLock {
+        loadedModels = models
+        loadedVersion = version
+      }
 
       await MainActor.run {
         modelStates[version] = .ready
@@ -196,9 +192,7 @@ final class FluidAudioModelManager: @unchecked Sendable {
 
   /// Get loaded models if available
   func getLoadedModels() -> AsrModels? {
-    lock.lock()
-    defer { lock.unlock() }
-    return loadedModels
+    return lock.withLock { loadedModels }
   }
 
   /// Get the model directory for streaming ASR models
@@ -256,23 +250,21 @@ final class FluidAudioModelManager: @unchecked Sendable {
 
   /// Check if a specific version is ready
   func isVersionReady(_ version: FluidAudioModelVersion) -> Bool {
-    lock.lock()
-    defer { lock.unlock() }
-    return modelStates[version]?.isReady ?? false
+    return lock.withLock { modelStates[version]?.isReady ?? false }
   }
 
   /// Unload current models to free memory
   func unloadModels() {
-    lock.lock()
-    loadedModels = nil
-    if let version = loadedVersion {
+    let previousVersion: FluidAudioModelVersion? = lock.withLock {
+      loadedModels = nil
+      let v = loadedVersion
       loadedVersion = nil
-      lock.unlock()
+      return v
+    }
+    if let version = previousVersion {
       Task { @MainActor in
         modelStates[version] = .downloaded
       }
-    } else {
-      lock.unlock()
     }
     logger.info("Unloaded FluidAudio models")
   }
@@ -425,10 +417,10 @@ final class FluidAudioModelManager: @unchecked Sendable {
 
       let models = try await AsrModels.downloadAndLoad(version: version.asrModelVersion)
 
-      lock.lock()
-      loadedModels = models
-      loadedVersion = version
-      lock.unlock()
+      lock.withLock {
+        loadedModels = models
+        loadedVersion = version
+      }
 
       await MainActor.run {
         modelStates[version] = .ready
@@ -545,10 +537,10 @@ final class FluidAudioModelManager: @unchecked Sendable {
   func deleteBatchModel(version: FluidAudioModelVersion) throws {
     // Unload if currently loaded
     if loadedVersion == version {
-      lock.lock()
-      loadedModels = nil
-      loadedVersion = nil
-      lock.unlock()
+      lock.withLock {
+        loadedModels = nil
+        loadedVersion = nil
+      }
     }
 
     let cacheDir = AsrModels.defaultCacheDirectory(for: version.asrModelVersion)

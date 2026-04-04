@@ -70,8 +70,9 @@ final class NotchManager {
       queue: .main
     ) { [weak self] _ in
       Task { @MainActor in
-        self?.detectPhysicalNotch()
-        self?.repositionPanel()
+        guard let self else { return }
+        self.detectPhysicalNotch()
+        self.repositionPanel()
       }
     }
   }
@@ -222,10 +223,10 @@ final class NotchManager {
   /// Schedule the panel to be ordered out after the collapse animation.
   private func scheduleOrderOut() {
     cancelOrderOut()
-    orderOutTask = Task {
+    orderOutTask = Task { [weak self] in
       try? await Task.sleep(for: .seconds(0.5))
-      guard !Task.isCancelled else { return }
-      panel?.orderOut(nil)
+      guard let self, !Task.isCancelled else { return }
+      self.panel?.orderOut(nil)
     }
   }
 
@@ -237,18 +238,18 @@ final class NotchManager {
   // MARK: - Auto Hide
 
   private func scheduleAutoHide(after seconds: Double) {
-    autoHideTask = Task {
+    autoHideTask = Task { [weak self] in
       try? await Task.sleep(for: .seconds(seconds))
-      guard !Task.isCancelled else { return }
+      guard let self, !Task.isCancelled else { return }
       withAnimation(.smooth(duration: 0.4)) {
-        appState.isShowingSuccess = false
-        appState.isShowingClipboard = false
-        appState.isShowingConfirmation = false
+        self.appState.isShowingSuccess = false
+        self.appState.isShowingClipboard = false
+        self.appState.isShowingConfirmation = false
       }
       withAnimation(.spring(response: 0.45, dampingFraction: 1.0)) {
-        notchState = .hidden
+        self.notchState = .hidden
       }
-      scheduleOrderOut()
+      self.scheduleOrderOut()
     }
   }
 

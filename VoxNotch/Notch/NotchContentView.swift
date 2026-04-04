@@ -26,18 +26,29 @@ struct NotchContentView: View {
 
   /// Current width of the notch shape.
   private var currentWidth: CGFloat {
-    notchManager.notchState == .expanded
-      ? expandedWidth
-      : notchManager.physicalNotchSize.width
+    if notchManager.notchState == .expanded { return expandedWidth }
+    return notchManager.hasPhysicalNotch
+      ? notchManager.physicalNotchSize.width
+      : 40
   }
 
   /// Current total height including the physical notch region at top.
   /// Hidden: just the physical notch height (invisible black region).
   /// Expanded: physical notch height + content below it.
   private var currentHeight: CGFloat {
-    notchManager.notchState == .expanded
-      ? notchManager.physicalNotchSize.height + expandedContentHeight
-      : notchManager.physicalNotchSize.height
+    if notchManager.notchState == .expanded {
+      return notchManager.physicalNotchSize.height + expandedContentHeight
+    }
+    return notchManager.hasPhysicalNotch
+      ? notchManager.physicalNotchSize.height
+      : 4
+  }
+
+  /// On external monitors the hidden state fades to transparent so the
+  /// shrinking shape dissolves instead of lingering as a visible black pill.
+  private var currentOpacity: CGFloat {
+    if notchManager.hasPhysicalNotch { return 1 }
+    return notchManager.notchState == .expanded ? 1 : 0
   }
 
   // MARK: - Corner Radii
@@ -92,6 +103,7 @@ struct NotchContentView: View {
       radius: 6
     )
     .compositingGroup()
+    .opacity(currentOpacity)
     .allowsHitTesting(notchManager.notchState == .expanded)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     .animation(animation, value: notchManager.notchState)
