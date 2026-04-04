@@ -34,7 +34,7 @@ struct NotchExpandedFallbackView: View {
     content
       .frame(maxWidth: .infinity, minHeight: 20, alignment: .center)
       .id(displayPhase)
-      .transition(.blurReplace)
+      .transition(.opacity)
       .padding(.horizontal, 14)
       .padding(.vertical, 6)
       .frame(width: 280)
@@ -170,14 +170,14 @@ struct NotchExpandedFallbackView: View {
           .foregroundStyle(.primary)
           .contentTransition(.interpolate)
           .id("model-\(index)")
-          .transition(.blurReplace)
+          .transition(.opacity)
       } else {
         Text("More Models…")
           .font(.system(size: 14, weight: .medium))
           .foregroundStyle(.purple)
           .contentTransition(.interpolate)
           .id("model-more")
-          .transition(.blurReplace)
+          .transition(.opacity)
       }
     }
   }
@@ -210,14 +210,14 @@ struct NotchExpandedFallbackView: View {
           .foregroundStyle(.primary)
           .contentTransition(.interpolate)
           .id("tone-\(index)")
-          .transition(.blurReplace)
+          .transition(.opacity)
       } else {
         Text("More Tones…")
           .font(.system(size: 14, weight: .medium))
           .foregroundStyle(.purple)
           .contentTransition(.interpolate)
           .id("tone-more")
-          .transition(.blurReplace)
+          .transition(.opacity)
       }
     }
   }

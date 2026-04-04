@@ -15,6 +15,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var deviceChangeObserver: NSObjectProtocol?
+    private var sleepObserver: NSObjectProtocol?
+    private var wakeObserver: NSObjectProtocol?
 
     // MARK: - App Lifecycle
 
@@ -24,7 +26,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         initializeDatabase()
         setupQuickDictation()
         setupAudioDeviceMonitoring()
+        setupSleepWakeHandling()
         configureAppBehavior()
+
+        // Load custom dictionary rules into NemoTextProcessing
+        _ = DictionaryRegistry.shared
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -327,6 +333,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    // MARK: - Sleep/Wake
+
+    private func setupSleepWakeHandling() {
+        let ws = NSWorkspace.shared.notificationCenter
+
+        sleepObserver = ws.addObserver(
+            forName: NSWorkspace.willSleepNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            _ = self // prevent unused warning
+            QuickDictationController.shared.stop()
+            ModelMemoryManager.shared.stopIdleTimer()
+        }
+
+        wakeObserver = ws.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            _ = self
+            QuickDictationController.shared.start()
+        }
+    }
+
     // MARK: - Cleanup
 
     private func cleanup() {
@@ -337,6 +368,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let observer = deviceChangeObserver {
             NotificationCenter.default.removeObserver(observer)
             deviceChangeObserver = nil
+        }
+
+        // Clean up sleep/wake observers
+        let ws = NSWorkspace.shared.notificationCenter
+        if let observer = sleepObserver {
+            ws.removeObserver(observer)
+            sleepObserver = nil
+        }
+        if let observer = wakeObserver {
+            ws.removeObserver(observer)
+            wakeObserver = nil
         }
 
         statusItem = nil

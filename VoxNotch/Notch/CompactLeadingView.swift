@@ -11,14 +11,27 @@ struct CompactLeadingView: View {
 
   private let appState = AppState.shared
 
+  /// Single animation driver derived from AppState booleans, avoiding
+  /// five competing `.animation()` modifiers.
+  private var displayPhase: CompactPhase {
+    if appState.isModelSelecting   { return .modelSelecting }
+    if appState.isToneSelecting    { return .toneSelecting }
+    if appState.isRecording        { return .recording }
+    if appState.isWarmingUp || appState.isTranscribing || appState.isProcessingLLM {
+      return .processing
+    }
+    if appState.isDownloadingModel { return .downloading }
+    if appState.modelsNeeded       { return .modelsNeeded }
+    if appState.lastError != nil   { return .error }
+    if appState.isShowingSuccess   { return .success }
+    if appState.isShowingClipboard { return .clipboard }
+    return .idle
+  }
+
   var body: some View {
     content
       .frame(height: 24)
-      .animation(.smooth(duration: 0.3), value: appState.isRecording)
-      .animation(.smooth(duration: 0.3), value: appState.isTranscribing)
-      .animation(.smooth(duration: 0.3), value: appState.isProcessingLLM)
-      .animation(.smooth(duration: 0.3), value: appState.isModelSelecting)
-      .animation(.smooth(duration: 0.3), value: appState.isToneSelecting)
+      .animation(.smooth(duration: 0.3), value: displayPhase)
   }
 
   @ViewBuilder
@@ -89,4 +102,12 @@ struct CompactLeadingView: View {
       .foregroundStyle(color)
       .font(.system(size: 14))
   }
+}
+
+// MARK: - Compact Phase
+
+private enum CompactPhase: Equatable {
+  case idle, recording, processing, downloading
+  case modelsNeeded, error, success, clipboard
+  case modelSelecting, toneSelecting
 }

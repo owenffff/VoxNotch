@@ -8,10 +8,31 @@
 import Combine
 import SwiftUI
 
+/// Fixed-size ring buffer to avoid O(n) array mutations every frame.
+private struct RingBuffer {
+  private var storage: [Float]
+  private var head: Int = 0
+  let capacity: Int
+
+  init(capacity: Int) {
+    self.capacity = capacity
+    self.storage = [Float](repeating: 0, count: capacity)
+  }
+
+  mutating func append(_ value: Float) {
+    storage[head] = value
+    head = (head + 1) % capacity
+  }
+
+  subscript(index: Int) -> Float {
+    storage[(head + index) % capacity]
+  }
+}
+
 struct ScrollingWaveformView: View {
   let level: Float
 
-  @State private var samples: [Float] = [Float](repeating: 0, count: 80)
+  @State private var samples = RingBuffer(capacity: 80)
   @State private var envelope: Float = 0.0
   @State private var prevEnv: Float = 0.0
   @State private var boostExcess: CGFloat = 0.0
@@ -22,14 +43,14 @@ struct ScrollingWaveformView: View {
   var body: some View {
     Canvas { ctx, size in
       let stride = barWidth + barGap
-      let visible = Int(size.width / stride)
-      let slice = samples.suffix(visible)
+      let visible = min(80, Int(size.width / stride))
+      let offset = 80 - visible
       let minH = max(1.5, size.height * 0.04)
       let cy = size.height / 2
-      let fadeRatio = 0.2
-      let totalCount = slice.count
+      let fadeRatio: CGFloat = 0.2
 
-      for (i, sample) in slice.enumerated() {
+      for i in 0..<visible {
+        let sample = samples[offset + i]
         let x = CGFloat(i) * stride
         let progress = CGFloat(i) / CGFloat(max(1, visible - 1))
 
@@ -43,7 +64,7 @@ struct ScrollingWaveformView: View {
         }
         let t = raw * raw * (3 - 2 * raw)
 
-        let boost = (i == totalCount - 1) ? (1.0 + boostExcess) : 1.0
+        let boost: CGFloat = (i == visible - 1) ? (1.0 + boostExcess) : 1.0
         let rawH = CGFloat(pow(sample, 0.5)) * size.height * boost
         let h = max(minH, min(size.height * 0.95, rawH))
         let rect = CGRect(x: x, y: cy - h / 2, width: barWidth, height: h)
@@ -67,9 +88,6 @@ struct ScrollingWaveformView: View {
       prevEnv = envelope
 
       samples.append(envelope)
-      if samples.count > 80 {
-        samples.removeFirst(samples.count - 80)
-      }
 
       boostExcess = max(0, boostExcess * 0.8)
     }

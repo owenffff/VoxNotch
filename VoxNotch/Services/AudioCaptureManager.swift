@@ -394,6 +394,9 @@ final class AudioCaptureManager {
     /// Tracks whether the tap is currently installed on the input node
     private var isTapInstalled = false
 
+    /// Throttle audio level updates to 30fps max
+    private var lastAudioLevelUpdate = Date.distantPast
+
     // MARK: - Permission
 
     /// Request microphone permission
@@ -555,8 +558,10 @@ final class AudioCaptureManager {
             throw AudioCaptureError.noAudioRecorded
         }
 
-        // Stop the engine
+        // Stop the engine and remove tap
         audioEngine.stop()
+        audioEngine.inputNode.removeTap(onBus: 0)
+        isTapInstalled = false
         isRecording = false
         resamplingConverter = nil
         accumulateBuffers = true
@@ -825,9 +830,13 @@ final class AudioCaptureManager {
         let sampleRate = buffer.format.sampleRate
         let bands = computeFrequencyBands(from: channelDataValueArray, sampleRate: sampleRate)
 
-        DispatchQueue.main.async {
-            AppState.shared.audioLevel = normalizedLevel
-            AppState.shared.audioFrequencyBands = bands
+        let now = Date()
+        if now.timeIntervalSince(lastAudioLevelUpdate) >= 1.0 / 30.0 {
+            lastAudioLevelUpdate = now
+            DispatchQueue.main.async {
+                AppState.shared.audioLevel = normalizedLevel
+                AppState.shared.audioFrequencyBands = bands
+            }
         }
 
         // Silence detection

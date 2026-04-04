@@ -181,10 +181,11 @@ final class MLXAudioModelManager: @unchecked Sendable {
       return modelDirectory(for: version)
     }
 
-    /// Already downloading, wait
+    /// Already downloading, wait with timeout
     if case .downloading = currentState {
       logger.info("Model \(version.rawValue) already downloading, waiting...")
-      while true {
+      let deadline = Date().addingTimeInterval(300) // 5-minute timeout
+      while Date() < deadline {
         try await Task.sleep(nanoseconds: 500_000_000) // 500ms
         lock.lock()
         let state = modelStates[version]
@@ -196,6 +197,7 @@ final class MLXAudioModelManager: @unchecked Sendable {
           throw MLXAudioError.modelDownloadFailed(message)
         }
       }
+      throw MLXAudioError.modelDownloadFailed("Download timed out after 5 minutes")
     }
 
     /// Start download
@@ -208,15 +210,15 @@ final class MLXAudioModelManager: @unchecked Sendable {
 
     do {
       #if canImport(MLXAudioSTT)
-      /// Poll directory size every 500ms to show real progress
+      /// Poll directory size every 2s to show progress without excessive I/O
       let cacheURL = mlxAudioCacheURL(for: version)
       let expectedBytes = Int64(version.estimatedSizeMB) * 1_000_000
       let pollingTask = Task {
         var lastBytes: Int64 = 0
         var lastTime = Date()
-        
+
         while !Task.isCancelled {
-          try? await Task.sleep(nanoseconds: 500_000_000)
+          try? await Task.sleep(nanoseconds: 2_000_000_000)
           let current = directorySize(at: cacheURL)
           guard current > 0, expectedBytes > 0 else { continue }
           
@@ -362,15 +364,15 @@ final class MLXAudioModelManager: @unchecked Sendable {
 
     do {
       #if canImport(MLXAudioSTT)
-      /// Poll directory size every 500ms to show real progress
+      /// Poll directory size every 2s to show progress without excessive I/O
       let cacheURL = mlxAudioCacheURL(repoID: model.hfRepoID)
       let expectedBytes: Int64 = 3_400_000_000
       let pollingTask = Task {
         var lastBytes: Int64 = 0
         var lastTime = Date()
-        
+
         while !Task.isCancelled {
-          try? await Task.sleep(nanoseconds: 500_000_000)
+          try? await Task.sleep(nanoseconds: 2_000_000_000)
           let current = directorySize(at: cacheURL)
           guard current > 0 else { continue }
           
@@ -632,7 +634,7 @@ final class MLXAudioModelManager: @unchecked Sendable {
         var lastBytes: Int64 = 0
         var lastTime = Date()
         while !Task.isCancelled {
-          try? await Task.sleep(nanoseconds: 500_000_000)
+          try? await Task.sleep(nanoseconds: 2_000_000_000)
           let current = directorySize(at: cacheURL)
           guard current > 0 else { continue }
           let now = Date()

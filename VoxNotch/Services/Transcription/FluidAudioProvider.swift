@@ -136,6 +136,14 @@ final class FluidAudioProvider: TranscriptionProvider, @unchecked Sendable {
     logger.info("ASR manager initialized")
   }
 
+  /// Release ASR manager to free model memory
+  func unloadModel() {
+    lock.lock()
+    asrManager = nil
+    lock.unlock()
+    logger.info("ASR manager unloaded")
+  }
+
   /// Reinitialize after model change
   func reinitialize() async throws {
     lock.lock()

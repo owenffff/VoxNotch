@@ -140,11 +140,11 @@ final class FluidAudioModelManager: @unchecked Sendable {
       return models
     }
 
-    // Already downloading, wait
+    // Already downloading, wait with timeout
     if case .downloading = currentState {
       logger.info("Model \(version.rawValue) already downloading, waiting...")
-      // Wait for download to complete
-      while true {
+      let deadline = Date().addingTimeInterval(300) // 5-minute timeout
+      while Date() < deadline {
         try await Task.sleep(nanoseconds: 500_000_000)  // 500ms
         lock.lock()
         let state = modelStates[version]
@@ -156,6 +156,7 @@ final class FluidAudioModelManager: @unchecked Sendable {
           throw FluidAudioError.modelDownloadFailed(message)
         }
       }
+      throw FluidAudioError.modelDownloadFailed("Download timed out after 5 minutes")
     }
 
     // Start download
@@ -391,15 +392,15 @@ final class FluidAudioModelManager: @unchecked Sendable {
     logger.info("Downloading batch ASR model: \(version.rawValue)")
 
     do {
-      /// Poll directory size every 500ms to show real progress
+      /// Poll directory size every 2s to show progress without excessive I/O
       let cacheDir = AsrModels.defaultCacheDirectory(for: version.asrModelVersion)
       let expectedBytes = Int64(version.estimatedSizeMB) * 1_000_000
       let pollingTask = Task {
         var lastBytes: Int64 = 0
         var lastTime = Date()
-        
+
         while !Task.isCancelled {
-          try? await Task.sleep(nanoseconds: 500_000_000)
+          try? await Task.sleep(nanoseconds: 2_000_000_000)
           let current = directorySize(at: cacheDir)
           guard current > 0, expectedBytes > 0 else { continue }
           
@@ -456,15 +457,15 @@ final class FluidAudioModelManager: @unchecked Sendable {
     logger.info("Downloading streaming models for chunk size: \(chunkKey)")
 
     do {
-      /// Poll directory size every 500ms to show real progress
+      /// Poll directory size every 2s to show progress without excessive I/O
       let modelDir = getStreamingModelDirectory(for: chunkSize)
       let expectedBytes: Int64 = 120_000_000
       let pollingTask = Task {
         var lastBytes: Int64 = 0
         var lastTime = Date()
-        
+
         while !Task.isCancelled {
-          try? await Task.sleep(nanoseconds: 500_000_000)
+          try? await Task.sleep(nanoseconds: 2_000_000_000)
           let current = directorySize(at: modelDir)
           guard current > 0 else { continue }
           

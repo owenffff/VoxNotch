@@ -74,7 +74,6 @@ final class ModelMemoryManager {
     }
 
     setupMemoryPressureObserver()
-    startIdleTimer()
   }
 
   deinit {
@@ -118,6 +117,7 @@ final class ModelMemoryManager {
       loadStates[model] = .loaded
       currentModel = model
       touchLastUsed()
+      startIdleTimer()
 
       logger.info("Model loaded successfully: \(model.rawValue)")
 
@@ -146,6 +146,7 @@ final class ModelMemoryManager {
 
     if currentModel == model {
       currentModel = nil
+      stopIdleTimer()
     }
 
     logger.info("Model unloaded: \(model.rawValue)")
@@ -228,9 +229,15 @@ final class ModelMemoryManager {
   // MARK: - Idle Timer
 
   private func startIdleTimer() {
+    guard idleTimer == nil else { return }
     idleTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
       self?.checkIdleTimeout()
     }
+  }
+
+  func stopIdleTimer() {
+    idleTimer?.invalidate()
+    idleTimer = nil
   }
 
   private func checkIdleTimeout() {
