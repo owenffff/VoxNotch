@@ -14,6 +14,7 @@ import os.log
 import SwiftUI
 
 /// Controller for Quick Dictation mode (hold-to-record, release to transcribe)
+@MainActor
 final class QuickDictationController {
 
     private let logger = Logger(subsystem: "com.voxnotch", category: "QuickDictationController")

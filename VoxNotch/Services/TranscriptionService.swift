@@ -11,7 +11,7 @@ import os.log
 // MARK: - Transcription Provider Protocol
 
 /// Protocol for speech-to-text transcription providers
-protocol TranscriptionProvider: Sendable {
+protocol TranscriptionProvider: AnyObject, Sendable {
   /// Provider name for display
   var name: String { get }
 
@@ -369,6 +369,16 @@ final class TranscriptionService: @unchecked Sendable {
     // Transcribe using FluidAudio
     do {
       let result = try await provider.transcribe(audioURL: audioURL, language: effectiveLanguage)
+
+      // Warn if provider was swapped during transcription (result is still valid
+      // because the local strong ref kept the old provider alive)
+      providerLock.lock()
+      let stillCurrent = primaryProvider === provider
+      providerLock.unlock()
+      if !stillCurrent {
+        logger.warning("Provider swapped during transcription — result from previous provider")
+      }
+
       return processResult(result)
     } catch {
       logger.error("Transcription failed: \(error.localizedDescription)")
