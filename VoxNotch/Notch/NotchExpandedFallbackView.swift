@@ -150,8 +150,13 @@ struct NotchExpandedFallbackView: View {
         .font(.system(size: 11))
         .foregroundStyle(.tertiary)
 
-      modelNameLabel
-        .frame(maxWidth: .infinity)
+      HStack(spacing: 6) {
+        Image(systemName: "waveform")
+          .font(.system(size: 11))
+          .foregroundStyle(.secondary)
+        modelNameLabel
+      }
+      .frame(maxWidth: .infinity)
 
       Image(systemName: "arrow.right")
         .font(.system(size: 11))
@@ -189,8 +194,13 @@ struct NotchExpandedFallbackView: View {
         .font(.system(size: 11))
         .foregroundStyle(.tertiary)
 
-      toneNameLabel
-        .frame(maxWidth: .infinity)
+      HStack(spacing: 6) {
+        Image(systemName: "textformat")
+          .font(.system(size: 11))
+          .foregroundStyle(.secondary)
+        toneNameLabel
+      }
+      .frame(maxWidth: .infinity)
 
       Image(systemName: "arrow.down")
         .font(.system(size: 11))
