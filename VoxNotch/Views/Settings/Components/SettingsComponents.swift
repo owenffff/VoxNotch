@@ -342,41 +342,6 @@ struct FeaturePill: View {
   }
 }
 
-// MARK: - Settings Section Container
-
-/// Grouped-form-style section container for settings pages that use custom layouts
-/// instead of Form/Section. Provides visual consistency with `.formStyle(.grouped)`.
-struct SettingsSection<Content: View>: View {
-  let title: String
-  var footer: String? = nil
-  @ViewBuilder let content: () -> Content
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: 6) {
-      Text(title)
-        .font(.system(size: 11, weight: .medium))
-        .foregroundStyle(.secondary)
-        .textCase(.uppercase)
-        .padding(.horizontal, 4)
-
-      VStack(alignment: .leading, spacing: 10) {
-        content()
-      }
-      .padding(14)
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .background(.quinary)
-      .clipShape(RoundedRectangle(cornerRadius: 10))
-
-      if let footer {
-        Text(footer)
-          .font(.caption)
-          .foregroundStyle(.tertiary)
-          .padding(.horizontal, 4)
-      }
-    }
-  }
-}
-
 // MARK: - Model Badge
 
 struct ModelBadge: View {
