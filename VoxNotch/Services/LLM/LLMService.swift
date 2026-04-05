@@ -63,7 +63,6 @@ final class LLMService {
   // MARK: - Properties
 
   private let settings = SettingsManager.shared
-  private let keychain = KeychainManager.shared
   private let logger = Logger(subsystem: "com.voxnotch", category: "LLMService")
 
   /// Default timeout for LLM requests (in seconds)
@@ -99,19 +98,8 @@ final class LLMService {
     return hasAPIKey
   }
 
-  /// Check if API key is available for current provider
-  var hasAPIKey: Bool {
-    switch settings.llmProvider {
-    case "apple":
-      return true  /// No API key needed for on-device
-
-    case "local":
-      return true
-
-    default:
-      return false
-    }
-  }
+  /// Check if API key is available for current provider (local-only, always true)
+  var hasAPIKey: Bool { true }
 
   /// Whether a retry is possible (has failed text to retry)
   var canRetry: Bool {

@@ -13,7 +13,7 @@ import os.log
 
 /// LLM provider that delegates to AnyLanguageModel's unified API.
 ///
-/// Supports: Apple Intelligence, Ollama, OpenAI, Anthropic, Gemini.
+/// Supports: Apple Intelligence, Ollama.
 /// Bridges VoxNotch's `LLMProvider.process(text:prompt:)` interface to
 /// `LanguageModelSession.respond(to:)`.
 // Thread Safety: All stored properties are immutable (`let`). The `any LanguageModel` existential

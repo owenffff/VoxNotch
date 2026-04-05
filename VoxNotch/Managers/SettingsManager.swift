@@ -60,13 +60,6 @@ final class SettingsManager {
     static let promptTemplate = "promptTemplate"
     static let customPrompt = "customPrompt"
 
-    /// OpenAI API (for STT fallback and LLM)
-    static let openAIAPIKey = "openAIAPIKey"
-    static let openAIBaseURL = "openAIBaseURL"
-
-    /// STT Provider
-    static let sttProvider = "sttProvider"
-
     /// Silence Detection
     static let enableAutoStopOnSilence = "enableAutoStopOnSilence"
     static let silenceThresholdDB = "silenceThresholdDB"
@@ -223,53 +216,6 @@ final class SettingsManager {
 
   var customPrompt: String {
     didSet { save(customPrompt, forKey: Keys.customPrompt) }
-  }
-
-  // MARK: - OpenAI API Settings
-
-  /// OpenAI API key (stored in Keychain via KeychainManager)
-  /// Returns nil if no key is configured
-  var openAIAPIKey: String? {
-    get {
-      KeychainManager.shared.getAPIKey(for: .openAI)
-    }
-    set {
-      if let key = newValue, !key.isEmpty {
-        do {
-          try KeychainManager.shared.saveAPIKey(key, for: .openAI)
-        } catch {
-          logger.error("Failed to save OpenAI API key to Keychain: \(error.localizedDescription)")
-        }
-      } else {
-        do {
-          try KeychainManager.shared.deleteAPIKey(for: .openAI)
-        } catch {
-          logger.error("Failed to delete OpenAI API key from Keychain: \(error.localizedDescription)")
-        }
-      }
-    }
-  }
-
-  /// OpenAI-compatible API base URL (for custom endpoints)
-  var openAIBaseURL: URL? {
-    get {
-      guard let urlString = UserDefaults.standard.string(forKey: Keys.openAIBaseURL),
-            !urlString.isEmpty
-      else {
-        return nil
-      }
-      return URL(string: urlString)
-    }
-    set {
-      save(newValue?.absoluteString ?? "", forKey: Keys.openAIBaseURL)
-    }
-  }
-
-  // MARK: - STT Provider Settings
-
-  /// Selected STT provider: "apple" or "openai"
-  var sttProvider: String {
-    didSet { save(sttProvider, forKey: Keys.sttProvider) }
   }
 
   // MARK: - Silence Detection Settings
@@ -464,9 +410,6 @@ final class SettingsManager {
     self.promptTemplate = defaults.string(forKey: Keys.promptTemplate) ?? "formal"
     self.customPrompt = defaults.string(forKey: Keys.customPrompt) ?? PromptTemplate.formal.prompt
 
-    /// STT Provider (default to Apple if available, otherwise OpenAI)
-    self.sttProvider = defaults.string(forKey: Keys.sttProvider) ?? "apple"
-
     /// Silence Detection
     self.enableAutoStopOnSilence = defaults.bool(forKey: Keys.enableAutoStopOnSilence)
     self.silenceThresholdDB = defaults.object(forKey: Keys.silenceThresholdDB) as? Double ?? -50.0
@@ -554,7 +497,6 @@ final class SettingsManager {
       Keys.restoreClipboard, Keys.useClipboardForOutput,
       Keys.llmProvider, Keys.llmEndpointURL, Keys.llmModel,
       Keys.promptTemplate, Keys.customPrompt,
-      Keys.openAIBaseURL, Keys.sttProvider,
       Keys.enableAutoStopOnSilence, Keys.silenceThresholdDB, Keys.silenceDurationSeconds,
       Keys.selectedMicrophoneDeviceID,
       Keys.asrEngine, Keys.mlxAudioModel, Keys.speechModel,
@@ -587,9 +529,6 @@ final class SettingsManager {
     llmModel = "llama3.2"
     promptTemplate = "formal"
     customPrompt = PromptTemplate.formal.prompt
-    sttProvider = "apple"
-    openAIAPIKey = nil
-    openAIBaseURL = nil
     enableAutoStopOnSilence = false
     silenceThresholdDB = -50.0
     silenceDurationSeconds = 3.0
