@@ -16,7 +16,6 @@ struct SpeechModelTab: View {
   @State private var fluidModelManager = FluidAudioModelManager.shared
   @State private var mlxModelManager = MLXAudioModelManager.shared
   @State private var customRegistry = CustomModelRegistry.shared
-  @State private var showAddCustomModel = false
   @State private var showBrowseModels = false
 
   private var selectedBuiltinModel: SpeechModel? {
@@ -70,27 +69,14 @@ struct SpeechModelTab: View {
           }
         }
 
-        HStack(spacing: 0) {
-          Button {
-            showAddCustomModel = true
-          } label: {
-            Label("Add Custom Model", systemImage: "plus.circle.fill")
-              .frame(maxWidth: .infinity)
-              .padding(.vertical, 10)
-          }
-          .buttonStyle(.borderless)
-
-          Divider().frame(height: 28)
-
-          Button {
-            showBrowseModels = true
-          } label: {
-            Label("Browse HuggingFace Models", systemImage: "safari")
-              .frame(maxWidth: .infinity)
-              .padding(.vertical, 10)
-          }
-          .buttonStyle(.borderless)
+        Button {
+          showBrowseModels = true
+        } label: {
+          Label("Browse HuggingFace Models", systemImage: "safari")
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
         }
+        .buttonStyle(.borderless)
         .overlay(
           RoundedRectangle(cornerRadius: 10)
             .strokeBorder(
@@ -127,13 +113,6 @@ struct SpeechModelTab: View {
     .onChange(of: settings.speechModel) { _, _ in
       TranscriptionService.shared.reconfigure()
       refreshModelsNeeded()
-    }
-    .sheet(isPresented: $showAddCustomModel) {
-      CustomModelSheet { newModel in
-        // Auto-select newly added model
-        settings.speechModel = newModel.id
-        refreshModelsNeeded()
-      }
     }
     .sheet(isPresented: $showBrowseModels) {
       HFModelBrowserSheet()
