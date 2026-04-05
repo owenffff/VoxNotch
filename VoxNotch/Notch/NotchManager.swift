@@ -245,6 +245,8 @@ final class NotchManager {
         self.appState.isShowingSuccess = false
         self.appState.isShowingClipboard = false
         self.appState.isShowingConfirmation = false
+        self.appState.lastError = nil
+        self.appState.lastErrorRecovery = nil
       }
       withAnimation(.spring(response: 0.45, dampingFraction: 1.0)) {
         self.notchState = .hidden
