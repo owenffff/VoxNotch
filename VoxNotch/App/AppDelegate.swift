@@ -67,13 +67,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func setupMenu() {
         let menu = NSMenu()
 
-        // Setup Wizard (re-run)
-        menu.addItem(NSMenuItem(
-            title: "Setup Wizard...",
-            action: #selector(openSetupWizard),
-            keyEquivalent: ""
-        ))
-
         // Settings
         menu.addItem(NSMenuItem(
             title: "Settings...",
@@ -88,26 +81,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         micMenuItem.submenu = micSubmenu
         menu.addItem(micMenuItem)
         buildMicrophoneSubmenu(micSubmenu)
-
-        menu.addItem(NSMenuItem.separator())
-
-        // Start/Stop Recording (tag 104)
-        let recordItem = NSMenuItem(
-            title: "Start Recording",
-            action: #selector(toggleRecording),
-            keyEquivalent: ""
-        )
-        recordItem.tag = 104
-        menu.addItem(recordItem)
-
-        // Select Model (tag 105)
-        let modelItem = NSMenuItem(
-            title: "Select Model...",
-            action: #selector(openModelSettings),
-            keyEquivalent: ""
-        )
-        modelItem.tag = 105
-        menu.addItem(modelItem)
 
         // History
         let historyItem = NSMenuItem(
@@ -135,27 +108,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Toggle menu (handled by the menu property)
     }
 
-    @objc private func toggleRecording() {
-        QuickDictationController.shared.toggleDictation()
-        updateStatusIcon()
-    }
-
-    @objc private func openModelSettings() {
-        SettingsWindowController.shared.showNavigatingToSpeechModel()
-    }
-
     @objc private func openSettings() {
         SettingsWindowController.shared.show()
-    }
-
-    @objc private func openSetupWizard() {
-        let wizard = OnboardingWindowController.shared
-        wizard.onComplete = {
-            SettingsManager.shared.hasCompletedOnboarding = true
-        }
-        // Reset so the wizard shows all steps fresh
-        SettingsManager.shared.hasCompletedOnboarding = false
-        wizard.show()
     }
 
     @objc private func openHistory() {
@@ -281,14 +235,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func updateMenuStatus() {
-        guard let menu = statusItem?.menu else { return }
-
-        let appState = AppState.shared
-
-        // Update recording item title (tag 104)
-        if let recordItem = menu.item(withTag: 104) {
-            recordItem.title = appState.dictationPhase == .recording ? "Stop Recording" : "Start Recording"
-        }
+        // No dynamic menu items to update currently
     }
 
     // MARK: - Database
