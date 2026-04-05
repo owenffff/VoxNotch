@@ -2,7 +2,7 @@
 //  OnboardingView.swift
 //  VoxNotch
 //
-//  First-launch onboarding flow for new users
+//  First-run setup wizard — permissions, model download, feature discovery
 //
 
 import SwiftUI
@@ -18,81 +18,77 @@ enum OnboardingStep: Int, CaseIterable {
 
   var title: String {
     switch self {
-    case .welcome: return "Welcome to VoxNotch"
-    case .permissions: return "Permissions"
-    case .model: return "Speech Recognition"
-    case .tutorial: return "How to Use"
-    case .complete: return "Ready!"
+    case .welcome: "Welcome to VoxNotch"
+    case .permissions: "Permissions"
+    case .model: "Speech Model"
+    case .tutorial: "How to Use"
+    case .complete: "Ready!"
     }
   }
 }
 
 // MARK: - Onboarding View
 
-/// First-launch onboarding flow
-@available(macOS 26.0, *)
+/// First-run setup wizard
 struct OnboardingView: View {
 
   // MARK: - Properties
 
-  @Environment(\.dismiss) private var dismiss
+  /// Callback when onboarding completes
+  var onComplete: (() -> Void)?
+
   @State private var currentStep: OnboardingStep = .welcome
 
   /// Permissions state
-  @State private var hasMicPermission: Bool = false
-  @State private var hasAccessibilityPermission: Bool = false
-  @State private var permissionsChecked: Bool = false
+  @State private var hasMicPermission = false
+  @State private var hasAccessibilityPermission = false
+  @State private var permissionPollTimer: Timer?
 
   /// Model state
-  @State private var isModelReady: Bool = false
-  @State private var isDownloadingModel: Bool = false
-
-  /// Callback when onboarding completes
-  var onComplete: (() -> Void)?
+  @State private var selectedModel: SpeechModel = .parakeetV2
+  @State private var isDownloading = false
+  @State private var downloadProgress: Double = 0
+  @State private var downloadError: String?
+  @State private var isModelDownloaded = false
 
   // MARK: - Body
 
   var body: some View {
     VStack(spacing: 0) {
-      /// Progress indicator
+      // Progress dots
       progressIndicator
         .padding(.top, 20)
 
       Divider()
         .padding(.top, 16)
 
-      /// Content
+      // Step content
       Group {
         switch currentStep {
         case .welcome:
           welcomeStep
-
         case .permissions:
           permissionsStep
-
         case .model:
           modelStep
-
         case .tutorial:
           tutorialStep
-
         case .complete:
           completeStep
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .transition(.slide)
       .animation(.easeInOut(duration: 0.3), value: currentStep)
 
       Divider()
 
-      /// Navigation buttons
+      // Navigation
       navigationButtons
         .padding()
     }
-    .frame(width: 500, height: 450)
-    .onAppear {
-      checkPermissions()
+    .frame(width: 540, height: 500)
+    .onDisappear {
+      permissionPollTimer?.invalidate()
     }
   }
 
@@ -127,7 +123,7 @@ struct OnboardingView: View {
 
       VStack(alignment: .leading, spacing: 12) {
         featureRow(icon: "keyboard", text: "Hold hotkey to record, release to transcribe")
-        featureRow(icon: "sparkles", text: "Optional AI text enhancement")
+        featureRow(icon: "sparkles", text: "Optional AI text enhancement with tones")
         featureRow(icon: "lock.shield", text: "Private, on-device processing")
         featureRow(icon: "bolt.fill", text: "Fast and lightweight")
       }
@@ -142,7 +138,6 @@ struct OnboardingView: View {
         .font(.title2)
         .foregroundColor(.accentColor)
         .frame(width: 30)
-
       Text(text)
         .font(.body)
     }
@@ -160,9 +155,10 @@ struct OnboardingView: View {
         .font(.title)
         .fontWeight(.bold)
 
-      Text("VoxNotch needs a few permissions to work properly.")
+      Text("VoxNotch needs these permissions to work.\nGrant them now — it only takes a moment.")
         .font(.body)
         .foregroundStyle(.secondary)
+        .multilineTextAlignment(.center)
 
       VStack(spacing: 16) {
         permissionRow(
@@ -181,15 +177,22 @@ struct OnboardingView: View {
           action: requestAccessibilityPermission
         )
       }
-      .padding(.top, 16)
+      .padding(.top, 8)
 
-      Button("Refresh Status") {
-        checkPermissions()
+      if !hasAccessibilityPermission {
+        Text("After granting Accessibility, this page updates automatically.")
+          .font(.caption)
+          .foregroundStyle(.tertiary)
       }
-      .buttonStyle(.borderless)
-      .font(.caption)
     }
     .padding()
+    .onAppear {
+      checkPermissions()
+      startPermissionPolling()
+    }
+    .onDisappear {
+      permissionPollTimer?.invalidate()
+    }
   }
 
   private func permissionRow(
@@ -234,85 +237,192 @@ struct OnboardingView: View {
   // MARK: - Model Step
 
   private var modelStep: some View {
-    VStack(spacing: 24) {
+    VStack(spacing: 20) {
       Image(systemName: "cpu")
-        .font(.system(size: 60))
+        .font(.system(size: 50))
         .foregroundColor(.accentColor)
 
-      Text("Speech Recognition")
+      Text("Download a Speech Model")
         .font(.title)
         .fontWeight(.bold)
 
-      Text("VoxNotch uses Apple's on-device speech recognition for fast, private transcription.")
+      Text("VoxNotch needs a speech model to transcribe your voice.\nChoose one to download now.")
         .font(.body)
         .foregroundStyle(.secondary)
         .multilineTextAlignment(.center)
 
-      VStack(spacing: 12) {
-        HStack {
-          Image(systemName: "checkmark.circle.fill")
-            .foregroundStyle(.green)
-          Text("Built-in Apple Speech")
+      // Model picker
+      VStack(spacing: 10) {
+        ForEach([SpeechModel.parakeetV2, .parakeetV3], id: \.self) { model in
+          modelCard(model)
         }
-        .font(.headline)
-
-        Text("No download required. Speech recognition uses the system's built-in engine.")
-          .font(.caption)
-          .foregroundStyle(.secondary)
-          .multilineTextAlignment(.center)
       }
-      .padding()
-      .background(.quaternary)
-      .cornerRadius(8)
+      .padding(.top, 4)
 
-      Text("You can configure language and model options in Settings.")
+      // Download progress / status
+      if isDownloading {
+        VStack(spacing: 8) {
+          ProgressView(value: downloadProgress)
+            .frame(maxWidth: .infinity)
+          Text("Downloading \(selectedModel.displayName)… \(Int(downloadProgress * 100))%")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal)
+      }
+
+      if let error = downloadError {
+        HStack(spacing: 6) {
+          Image(systemName: "exclamationmark.triangle.fill")
+            .foregroundStyle(.red)
+          Text(error)
+            .font(.caption)
+            .foregroundStyle(.red)
+        }
+
+        Button("Retry Download") {
+          startModelDownload()
+        }
+        .buttonStyle(.bordered)
+      }
+
+      if isModelDownloaded {
+        Label("\(selectedModel.displayName) is ready", systemImage: "checkmark.circle.fill")
+          .foregroundStyle(.green)
+          .font(.callout)
+      }
+
+      Text("You can download additional models later in Settings → Speech Model.")
         .font(.caption)
         .foregroundStyle(.tertiary)
     }
     .padding()
     .onAppear {
-      isModelReady = true
+      // Check if the default model is already downloaded
+      isModelDownloaded = selectedModel.isDownloaded
     }
+  }
+
+  private func modelCard(_ model: SpeechModel) -> some View {
+    Button {
+      selectedModel = model
+      isModelDownloaded = model.isDownloaded
+      downloadError = nil
+    } label: {
+      HStack {
+        VStack(alignment: .leading, spacing: 4) {
+          HStack(spacing: 6) {
+            Text(model.displayName)
+              .font(.headline)
+              .foregroundStyle(selectedModel == model ? .white : .primary)
+            Text("~\(model.estimatedSizeMB) MB")
+              .font(.caption)
+              .foregroundStyle(selectedModel == model ? .white.opacity(0.7) : .secondary)
+          }
+          Text(model.tagline)
+            .font(.caption)
+            .foregroundStyle(selectedModel == model ? .white.opacity(0.85) : .secondary)
+        }
+
+        Spacer()
+
+        if model.isDownloaded {
+          Image(systemName: "checkmark.circle.fill")
+            .foregroundStyle(selectedModel == model ? .white : .green)
+        } else if selectedModel == model {
+          Image(systemName: "circle")
+            .foregroundStyle(.white.opacity(0.5))
+        }
+      }
+      .padding(12)
+      .background(
+        RoundedRectangle(cornerRadius: 10)
+          .fill(selectedModel == model ? Color.accentColor : Color.secondary.opacity(0.08))
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: 10)
+          .stroke(selectedModel == model ? Color.clear : Color.secondary.opacity(0.15), lineWidth: 1)
+      )
+    }
+    .buttonStyle(.plain)
+    .disabled(isDownloading)
   }
 
   // MARK: - Tutorial Step
 
   private var tutorialStep: some View {
-    VStack(spacing: 24) {
+    VStack(spacing: 20) {
       Image(systemName: "hand.tap.fill")
-        .font(.system(size: 60))
+        .font(.system(size: 50))
         .foregroundColor(.accentColor)
 
       Text("How to Use VoxNotch")
         .font(.title)
         .fontWeight(.bold)
 
-      VStack(alignment: .leading, spacing: 20) {
+      VStack(alignment: .leading, spacing: 16) {
         tutorialRow(
           step: 1,
           icon: "keyboard",
-          title: "Hold the Hotkey",
-          description: "Press and hold Control+Option to start recording"
+          title: "Hold \(SettingsManager.shared.hotkeyModifiers) to record",
+          description: "Press and hold your hotkey to start recording"
         )
 
         tutorialRow(
           step: 2,
           icon: "waveform",
-          title: "Speak",
-          description: "Talk normally while holding the hotkey"
+          title: "Speak naturally",
+          description: "Talk while holding the hotkey — the notch shows a waveform"
         )
 
         tutorialRow(
           step: 3,
           icon: "keyboard.badge.ellipsis",
-          title: "Release",
-          description: "Let go to transcribe and insert text at cursor"
+          title: "Release to transcribe",
+          description: "Let go and text is inserted at your cursor"
         )
       }
 
-      Text("You can customize the hotkey in Settings.")
-        .font(.caption)
-        .foregroundStyle(.tertiary)
+      Divider()
+        .padding(.vertical, 4)
+
+      // Power features hint
+      VStack(alignment: .leading, spacing: 10) {
+        Text("Power Features")
+          .font(.headline)
+          .foregroundStyle(.secondary)
+
+        HStack(spacing: 10) {
+          Image(systemName: "arrow.left.arrow.right")
+            .font(.title3)
+            .foregroundColor(.accentColor)
+            .frame(width: 28)
+          VStack(alignment: .leading, spacing: 2) {
+            Text("Hold hotkey + ←→ arrows")
+              .font(.callout.bold())
+            Text("Quick-switch between speech models")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+        }
+
+        HStack(spacing: 10) {
+          Image(systemName: "arrow.up.arrow.down")
+            .font(.title3)
+            .foregroundColor(.accentColor)
+            .frame(width: 28)
+          VStack(alignment: .leading, spacing: 2) {
+            Text("Hold hotkey + ↑↓ arrows")
+              .font(.callout.bold())
+            Text("Quick-switch between tone presets")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+        }
+      }
+      .padding()
+      .background(.quaternary)
+      .cornerRadius(8)
     }
     .padding()
   }
@@ -322,7 +432,7 @@ struct OnboardingView: View {
       ZStack {
         Circle()
           .fill(Color.accentColor)
-          .frame(width: 30, height: 30)
+          .frame(width: 28, height: 28)
         Text("\(step)")
           .font(.headline)
           .foregroundStyle(.white)
@@ -350,17 +460,17 @@ struct OnboardingView: View {
         .font(.system(size: 80))
         .foregroundStyle(.green)
 
-      Text("You're Ready!")
+      Text("You're All Set!")
         .font(.largeTitle)
         .fontWeight(.bold)
 
-      Text("VoxNotch is set up and ready to use.\nHold Control+Option to start dictating.")
+      Text("VoxNotch is ready.\nHold \(SettingsManager.shared.hotkeyModifiers) to start dictating.")
         .font(.title3)
         .foregroundStyle(.secondary)
         .multilineTextAlignment(.center)
 
       VStack(spacing: 8) {
-        Text("Access VoxNotch from the menu bar")
+        Text("Find VoxNotch in your menu bar")
           .font(.caption)
           .foregroundStyle(.tertiary)
 
@@ -384,6 +494,7 @@ struct OnboardingView: View {
           }
         }
         .buttonStyle(.borderless)
+        .disabled(isDownloading)
       }
 
       Spacer()
@@ -396,31 +507,46 @@ struct OnboardingView: View {
         .foregroundStyle(.secondary)
       }
 
-      Button(currentStep == .complete ? "Get Started" : "Continue") {
-        if currentStep == .complete {
-          completeOnboarding()
-        } else {
-          withAnimation {
-            currentStep = OnboardingStep(rawValue: currentStep.rawValue + 1) ?? .complete
+      if currentStep == .model && !isModelDownloaded && !isDownloading {
+        Button("Download \(selectedModel.displayName)") {
+          startModelDownload()
+        }
+        .buttonStyle(.borderedProminent)
+      } else {
+        Button(currentStep == .complete ? "Get Started" : "Continue") {
+          if currentStep == .complete {
+            completeOnboarding()
+          } else {
+            advanceStep()
           }
         }
+        .buttonStyle(.borderedProminent)
+        .disabled(isDownloading)
+        .disabled(currentStep == .model && !isModelDownloaded)
       }
-      .buttonStyle(.borderedProminent)
-      .disabled(currentStep == .permissions && !canProceedFromPermissions)
     }
   }
 
-  // MARK: - Helpers
+  // MARK: - Logic
 
-  private var canProceedFromPermissions: Bool {
-    /// Can always proceed - permissions are optional
-    true
+  private func advanceStep() {
+    withAnimation {
+      currentStep = OnboardingStep(rawValue: currentStep.rawValue + 1) ?? .complete
+    }
   }
 
   private func checkPermissions() {
     hasMicPermission = AudioCaptureManager.shared.hasMicrophonePermission
     hasAccessibilityPermission = HotkeyManager.shared.hasAccessibilityPermission
-    permissionsChecked = true
+  }
+
+  private func startPermissionPolling() {
+    permissionPollTimer?.invalidate()
+    permissionPollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+      DispatchQueue.main.async {
+        checkPermissions()
+      }
+    }
   }
 
   private func requestMicPermission() {
@@ -433,23 +559,61 @@ struct OnboardingView: View {
 
   private func requestAccessibilityPermission() {
     HotkeyManager.shared.requestAccessibilityPermission()
-    /// Check again after a delay
-    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-      checkPermissions()
+  }
+
+  private func startModelDownload() {
+    guard !isDownloading else { return }
+    isDownloading = true
+    downloadProgress = 0
+    downloadError = nil
+
+    // Persist the selected model as the active speech model
+    SettingsManager.shared.speechModel = selectedModel.rawValue
+
+    Task {
+      do {
+        switch selectedModel.engine {
+        case .fluidAudio:
+          guard let version = selectedModel.fluidAudioVersion else { return }
+          let manager = FluidAudioModelManager.shared
+
+          // Poll download progress from the model manager
+          let progressTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { _ in
+            DispatchQueue.main.async {
+              downloadProgress = manager.downloadProgress
+            }
+          }
+
+          try await manager.downloadBatchModel(version: version)
+          progressTimer.invalidate()
+
+        case .mlxAudio:
+          guard let version = selectedModel.mlxAudioVersion else { return }
+          _ = try await MLXAudioModelManager.shared.downloadAndLoad(version: version)
+        }
+
+        await MainActor.run {
+          isDownloading = false
+          downloadProgress = 1.0
+          isModelDownloaded = true
+        }
+      } catch {
+        await MainActor.run {
+          isDownloading = false
+          downloadError = error.localizedDescription
+        }
+      }
     }
   }
 
   private func completeOnboarding() {
-    /// Mark onboarding as complete
-    UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
+    SettingsManager.shared.hasCompletedOnboarding = true
     onComplete?()
-    dismiss()
   }
 }
 
 // MARK: - Preview
 
-@available(macOS 26.0, *)
 #Preview {
   OnboardingView()
 }
