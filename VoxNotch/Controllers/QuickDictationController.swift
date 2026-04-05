@@ -3,6 +3,8 @@
 //  VoxNotch
 //
 //  Orchestrates the Quick Dictation flow: hotkey -> record -> transcribe -> output
+//  Wires events (hotkey, silence, model/tone switch) to DictationStateMachine
+//  and translates state changes into AppState / NotchManager side effects.
 //
 
 import AppKit
@@ -18,41 +20,24 @@ final class QuickDictationController {
 
     // MARK: - Types
 
-    /// Dictation state
-    enum State {
-        case idle
-        case recording
-        case warmingUp
-        case transcribing
-        case processingLLM
-        case outputting
-        case modelSelecting
-        case toneSelecting
-        case error(Error)
-    }
-
     /// Callback for state changes
-    typealias StateCallback = (State) -> Void
+    typealias StateCallback = (DictationState) -> Void
 
     // MARK: - Properties
 
     static let shared = QuickDictationController()
 
-    /// Current dictation state
-    private(set) var state: State = .idle
+    /// The state machine that owns the dictation state, session ID, and timers.
+    private let stateMachine = DictationStateMachine()
 
     /// Callback for state changes
     var onStateChange: StateCallback?
 
     /// Whether dictation is currently active
-    var isActive: Bool {
-        switch state {
-        case .recording, .warmingUp, .transcribing, .processingLLM, .outputting:
-            return true
-        case .idle, .modelSelecting, .toneSelecting, .error:
-            return false
-        }
-    }
+    var isActive: Bool { stateMachine.state.isActive }
+
+    /// Current dictation state (read-only, delegates to state machine)
+    var state: DictationState { stateMachine.state }
 
     // Dependencies
     private let hotkeyManager: HotkeyManager
@@ -63,24 +48,9 @@ final class QuickDictationController {
     /// Minimum recording duration to avoid accidental taps and phantom words
     private let minimumRecordingDuration: TimeInterval = 0.5
 
-    /// Recording start time for duration check
-    private var recordingStartTime: Date?
-
-    /// Session ID incremented on cancel so in-flight transcription tasks know to discard results
-    private var currentSessionID = UUID()
-
     /// The frontmost application when the user pressed the hotkey.
     /// Captured before the notch panel appears so AX queries target the correct app.
     private var savedFrontmostApp: NSRunningApplication?
-
-    /// Watchdog timer to prevent stuck recording state
-    private var watchdogTimer: Timer?
-
-    /// Timer that updates appState.recordingDuration every second while recording
-    private var durationTimer: Timer?
-
-    /// Timestamp of last session cancel — used to enforce a cooldown between rapid presses
-    private var lastCancelTime: Date?
 
     /// Cooldown after a cancel before accepting a new recording (prevents frame drops on rapid presses)
     private let cancelCooldown: TimeInterval = 0.3
@@ -92,6 +62,17 @@ final class QuickDictationController {
         self.audioManager = AudioCaptureManager.shared
         self.textOutputManager = TextOutputManager.shared
         self.appState = AppState.shared
+
+        stateMachine.delegate = self
+
+        // Wire state machine callbacks
+        stateMachine.onRecordingDurationTick = { [weak self] elapsed in
+            self?.appState.recordingDuration = elapsed
+        }
+        stateMachine.onWatchdogFired = { [weak self] in
+            print("QuickDictationController: Watchdog triggered - force resetting stuck recording state")
+            self?.cancelCurrentSession()
+        }
 
         setupHotkeyHandler()
         setupModelSwitchHandler()
@@ -110,10 +91,10 @@ final class QuickDictationController {
                 print("QuickDictationController: Starting recording...")
                 self?.startRecording()
             case .keyUp:
-                if case .modelSelecting = self?.state {
+                if case .modelSelecting = self?.stateMachine.state {
                     print("QuickDictationController: Confirming model selection...")
                     self?.confirmModelSelection()
-                } else if case .toneSelecting = self?.state {
+                } else if case .toneSelecting = self?.stateMachine.state {
                     print("QuickDictationController: Confirming tone selection...")
                     self?.confirmToneSelection()
                 } else {
@@ -148,7 +129,7 @@ final class QuickDictationController {
         /// Warning callback - show visual feedback that auto-stop is coming
         audioManager.onSilenceWarning = { [weak self] in
             guard let self = self,
-                  case .recording = self.state
+                  case .recording = self.stateMachine.state
             else {
                 return
             }
@@ -159,7 +140,7 @@ final class QuickDictationController {
         /// Threshold reached callback - auto-stop recording
         audioManager.onSilenceThresholdReached = { [weak self] in
             guard let self = self,
-                  case .recording = self.state
+                  case .recording = self.stateMachine.state
             else {
                 return
             }
@@ -221,14 +202,14 @@ final class QuickDictationController {
         if audioManager.isRecording {
             audioManager.cancelRecording()
         }
-        updateState(.idle)
+        stateMachine.transition(to: .idle)
     }
 
     // MARK: - Click-to-Dictate
 
     /// Toggle dictation on/off via click (alternative to hold-to-record hotkey)
     func toggleDictation() {
-        switch state {
+        switch stateMachine.state {
         case .idle, .error, .modelSelecting, .toneSelecting:
             startRecording()
 
@@ -243,15 +224,15 @@ final class QuickDictationController {
     // MARK: - Recording Flow
 
     private func startRecording() {
-        print("QuickDictationController: startRecording called, state: \(state)")
+        print("QuickDictationController: startRecording called, state: \(stateMachine.state)")
 
         // If we are already recording, ignore
-        if case .recording = state {
+        if case .recording = stateMachine.state {
             return
         }
 
         // Cooldown after a recent cancel to prevent frame drops on rapid presses
-        if let lastCancel = lastCancelTime,
+        if let lastCancel = stateMachine.lastCancelTime,
            Date().timeIntervalSince(lastCancel) < cancelCooldown {
             print("QuickDictationController: Ignoring startRecording during cooldown")
             return
@@ -272,20 +253,20 @@ final class QuickDictationController {
         appState.isShowingConfirmation = false
 
         // If we are transcribing, outputting, or in error, cancel the current session to start a new one
-        if case .warmingUp = state {
+        if case .warmingUp = stateMachine.state {
             cancelCurrentSession()
-        } else if case .transcribing = state {
+        } else if case .transcribing = stateMachine.state {
             cancelCurrentSession()
-        } else if case .processingLLM = state {
+        } else if case .processingLLM = stateMachine.state {
             cancelCurrentSession()
-        } else if case .outputting = state {
+        } else if case .outputting = stateMachine.state {
             cancelCurrentSession()
-        } else if case .error = state {
+        } else if case .error = stateMachine.state {
             cancelCurrentSession()
         }
 
         // Ensure we are back to idle before starting
-        state = .idle
+        stateMachine.transition(to: .idle)
 
         // If the selected model is not downloaded, notify user and don't record
         let speechModelID = SettingsManager.shared.speechModel
@@ -331,13 +312,10 @@ final class QuickDictationController {
         savedFrontmostApp = NSWorkspace.shared.frontmostApplication
 
         // Set recording state synchronously so keyUp can always see it
-        updateState(.recording)
-        recordingStartTime = Date()
+        stateMachine.transition(to: .recording)
+        stateMachine.recordingStartTime = Date()
         appState.recordingDuration = 0
-        durationTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            guard let self, let start = self.recordingStartTime else { return }
-            self.appState.recordingDuration = Date().timeIntervalSince(start)
-        }
+        stateMachine.startDurationTimer()
 
         // Accumulate buffers for batch transcription (save to WAV file on stop)
         audioManager.accumulateBuffers = true
@@ -350,19 +328,19 @@ final class QuickDictationController {
             TranscriptionService.shared.preloadModel()
         } catch {
             print("QuickDictationController: Failed to start audio capture: \(error)")
-            updateState(.error(error))
+            stateMachine.transition(to: .error(error))
             return
         }
     }
 
     private func stopRecordingAndTranscribe() {
-        guard case .recording = state else {
-            print("QuickDictationController: stopRecordingAndTranscribe ignored, state: \(state)")
+        guard case .recording = stateMachine.state else {
+            print("QuickDictationController: stopRecordingAndTranscribe ignored, state: \(stateMachine.state)")
             return
         }
 
         // Check minimum duration
-        let duration = recordingStartTime.map { Date().timeIntervalSince($0) } ?? 0
+        let duration = stateMachine.recordingStartTime.map { Date().timeIntervalSince($0) } ?? 0
         print("QuickDictationController: Recording duration: \(String(format: "%.2f", duration))s")
         if duration < minimumRecordingDuration {
             print("QuickDictationController: Too short, cancelling")
@@ -378,12 +356,12 @@ final class QuickDictationController {
         } catch {
             print("QuickDictationController: Failed to stop recording: \(error)")
             audioManager.cancelRecording()
-            updateState(.error(error))
+            stateMachine.transition(to: .error(error))
             return
         }
 
         // Capture session ID to detect cancellation during async work
-        let capturedSessionID = currentSessionID
+        let capturedSessionID = stateMachine.currentSessionID
 
         // Transcribe using batch ASR
         Task {
@@ -399,18 +377,18 @@ final class QuickDictationController {
                 let isReady = await TranscriptionService.shared.isReady
                 if !isReady {
                     await MainActor.run {
-                        updateState(.warmingUp)
+                        stateMachine.transition(to: .warmingUp)
                     }
                 } else {
                     await MainActor.run {
-                        updateState(.transcribing)
+                        stateMachine.transition(to: .transcribing)
                     }
                 }
 
                 // Ensure batch model is loaded (will block if not ready)
                 try await TranscriptionService.shared.ensureModelReady()
 
-                guard capturedSessionID == self.currentSessionID else {
+                guard self.stateMachine.isSessionValid(capturedSessionID) else {
                     print("QuickDictationController: Session cancelled after ensureModelReady, discarding")
                     return
                 }
@@ -418,14 +396,14 @@ final class QuickDictationController {
                 // Transition to transcribing state if we were warming up
                 if !isReady {
                     await MainActor.run {
-                        updateState(.transcribing)
+                        stateMachine.transition(to: .transcribing)
                     }
                 }
 
                 // Transcribe the WAV file
                 let result = try await TranscriptionService.shared.transcribe(audioURL: captureResult.fileURL)
 
-                guard capturedSessionID == self.currentSessionID else {
+                guard self.stateMachine.isSessionValid(capturedSessionID) else {
                     print("QuickDictationController: Session cancelled after transcription, discarding")
                     return
                 }
@@ -444,7 +422,7 @@ final class QuickDictationController {
                 if text.isEmpty {
                     print("QuickDictationController: Empty transcription, returning to idle")
                     await MainActor.run {
-                        updateState(.idle)
+                        stateMachine.transition(to: .idle)
                     }
                     return
                 }
@@ -453,17 +431,17 @@ final class QuickDictationController {
                 if let confidence = result.confidence, confidence < 0.45 {
                     print("QuickDictationController: Low confidence (\(String(format: "%.2f", confidence))), likely phantom words, discarding")
                     await MainActor.run {
-                        updateState(.idle)
+                        stateMachine.transition(to: .idle)
                     }
                     return
                 }
 
                 // Transition to LLM processing state
                 await MainActor.run {
-                    updateState(.processingLLM)
+                    stateMachine.transition(to: .processingLLM)
                 }
 
-                guard capturedSessionID == self.currentSessionID else {
+                guard self.stateMachine.isSessionValid(capturedSessionID) else {
                     print("QuickDictationController: Session cancelled before LLM, discarding")
                     return
                 }
@@ -545,7 +523,7 @@ final class QuickDictationController {
                 await outputText(finalText)
 
             } catch {
-                guard capturedSessionID == self.currentSessionID else {
+                guard self.stateMachine.isSessionValid(capturedSessionID) else {
                     print("QuickDictationController: Session cancelled during error handling, discarding")
                     return
                 }
@@ -553,7 +531,7 @@ final class QuickDictationController {
                 shouldCleanupAudio = false  // Preserve audio file for retry
                 await MainActor.run {
                     self.appState.lastAudioURL = captureResult.fileURL
-                    updateState(.error(error))
+                    stateMachine.transition(to: .error(error))
                 }
             }
         }
@@ -567,25 +545,25 @@ final class QuickDictationController {
             return
         }
 
-        let capturedSessionID = currentSessionID
+        let capturedSessionID = stateMachine.currentSessionID
         appState.lastError = nil
         appState.lastErrorRecovery = nil
 
         Task {
             do {
-                await MainActor.run { updateState(.warmingUp) }
+                await MainActor.run { stateMachine.transition(to: .warmingUp) }
                 try await TranscriptionService.shared.ensureModelReady()
 
-                guard capturedSessionID == self.currentSessionID else { return }
+                guard self.stateMachine.isSessionValid(capturedSessionID) else { return }
 
-                await MainActor.run { updateState(.transcribing) }
+                await MainActor.run { stateMachine.transition(to: .transcribing) }
                 let result = try await TranscriptionService.shared.transcribe(audioURL: audioURL)
 
-                guard capturedSessionID == self.currentSessionID else { return }
+                guard self.stateMachine.isSessionValid(capturedSessionID) else { return }
 
                 let text = result.text
                 guard !text.isEmpty else {
-                    await MainActor.run { updateState(.error(TranscriptionError.noSpeechDetected)) }
+                    await MainActor.run { stateMachine.transition(to: .error(TranscriptionError.noSpeechDetected)) }
                     return
                 }
 
@@ -597,9 +575,9 @@ final class QuickDictationController {
                 await outputText(text)
 
             } catch {
-                guard capturedSessionID == self.currentSessionID else { return }
+                guard self.stateMachine.isSessionValid(capturedSessionID) else { return }
                 await MainActor.run {
-                    updateState(.error(error))
+                    stateMachine.transition(to: .error(error))
                 }
             }
         }
@@ -615,7 +593,7 @@ final class QuickDictationController {
 
         await MainActor.run {
             appState.lastOutputWasClipboard = !hasFocusedInput
-            updateState(.outputting)
+            stateMachine.transition(to: .outputting)
         }
 
         if hasFocusedInput {
@@ -630,12 +608,12 @@ final class QuickDictationController {
                     self.appState.lastAudioURL = nil
                     NotchManager.shared.showSuccess()
                     SoundManager.shared.playSuccessSound()
-                    updateState(.idle)
+                    stateMachine.transition(to: .idle)
                 }
             } catch {
                 print("QuickDictationController: Text output failed: \(error)")
                 await MainActor.run {
-                    updateState(.error(error))
+                    stateMachine.transition(to: .error(error))
                 }
             }
         } else {
@@ -646,7 +624,7 @@ final class QuickDictationController {
                 self.appState.lastAudioURL = nil
                 NotchManager.shared.showClipboard()
                 SoundManager.shared.playSuccessSound()
-                updateState(.idle)
+                stateMachine.transition(to: .idle)
             }
         }
     }
@@ -657,30 +635,28 @@ final class QuickDictationController {
     /// Used when transitioning from recording directly into model/tone selection
     /// so the expanded panel stays visible and content swaps seamlessly.
     private func stopRecordingQuietly() {
-        currentSessionID = UUID()
+        stateMachine.invalidateSession()
         savedFrontmostApp = nil
         audioManager.cancelRecording()
-        durationTimer?.invalidate()
-        durationTimer = nil
+        stateMachine.stopDurationTimer()
         appState.recordingDuration = 0
-        // Transition to idle without triggering NotchManager.hide().
-        // Don't clear appState.isRecording here — the subsequent updateState()
-        // call handles it inside withAnimation for a smooth crossfade.
-        state = .idle
+        // Transition to idle — the subsequent enterToneSelectionMode/enterModelSelectionMode
+        // call immediately transitions to the selecting state, so the idle state is transient.
+        stateMachine.transition(to: .idle)
     }
 
     /// Force cancel any active recording or transcription.
     /// Increments currentSessionID to invalidate any in-flight transcription tasks.
     private func cancelCurrentSession() {
         print("QuickDictationController: Cancelling current session")
-        lastCancelTime = Date()
-        currentSessionID = UUID()
+        stateMachine.lastCancelTime = Date()
+        stateMachine.invalidateSession()
         savedFrontmostApp = nil
 
         // Stop audio capture
         audioManager.cancelRecording()
 
-        updateState(.idle)
+        stateMachine.transition(to: .idle)
         NotchManager.shared.hide()
     }
 
@@ -688,16 +664,16 @@ final class QuickDictationController {
 
     private func handleToneSwitchRequest(direction: Int) {
         // Ignore if model selection is already active (one picker at a time)
-        if case .modelSelecting = state { return }
+        if case .modelSelecting = stateMachine.state { return }
 
         // If recording, stop recording quietly without hiding the notch
         // so the transition to tone selection is seamless.
-        if case .recording = state {
+        if case .recording = stateMachine.state {
             stopRecordingQuietly()
         }
 
         // Enter or advance tone selection
-        if case .toneSelecting = state {
+        if case .toneSelecting = stateMachine.state {
             cycleToneSelection(direction: direction)
         } else {
             enterToneSelectionMode(direction: direction)
@@ -720,7 +696,7 @@ final class QuickDictationController {
         let candidates = getPinnedTones()
         appState.toneSelectionCandidates = candidates
         appState.toneSelectionIndex = 0
-        updateState(.toneSelecting)
+        stateMachine.transition(to: .toneSelecting)
     }
 
     private func cycleToneSelection(direction: Int) {
@@ -743,7 +719,7 @@ final class QuickDictationController {
             // "More Tones..." — open Settings (instant dismiss, user is navigating away)
             appState.navigateToSettingsPanel = SettingsPanel.ai.rawValue
             SettingsWindowController.shared.showNavigatingToAIEnhancement()
-            updateState(.idle)
+            stateMachine.transition(to: .idle)
             NotchManager.shared.hide()
         } else {
             let selected = candidates[index]
@@ -752,7 +728,7 @@ final class QuickDictationController {
             // Set confirmation BEFORE clearing isToneSelecting so displayPhase
             // transitions directly (.toneSelecting → .confirmation) without .idle flash.
             NotchManager.shared.showConfirmation(selected.displayName)
-            updateState(.idle)
+            stateMachine.transition(to: .idle)
         }
     }
 
@@ -760,16 +736,16 @@ final class QuickDictationController {
 
     private func handleModelSwitchRequest(direction: Int) {
         // Ignore if tone selection is already active (one picker at a time)
-        if case .toneSelecting = state { return }
+        if case .toneSelecting = stateMachine.state { return }
 
         // If recording, stop recording quietly without hiding the notch
         // so the transition to model selection is seamless.
-        if case .recording = state {
+        if case .recording = stateMachine.state {
             stopRecordingQuietly()
         }
 
         // Enter or advance model selection
-        if case .modelSelecting = state {
+        if case .modelSelecting = stateMachine.state {
             cycleModelSelection(direction: direction)
         } else {
             enterModelSelectionMode(direction: direction)
@@ -793,7 +769,7 @@ final class QuickDictationController {
 
         appState.modelSelectionCandidates = candidates
         appState.modelSelectionIndex = 0
-        updateState(.modelSelecting)
+        stateMachine.transition(to: .modelSelecting)
     }
 
     private func cycleModelSelection(direction: Int) {
@@ -816,7 +792,7 @@ final class QuickDictationController {
             // "More Models..." — open Settings (instant dismiss, user is navigating away)
             appState.navigateToSettingsPanel = SettingsPanel.speechModel.rawValue
             SettingsWindowController.shared.showNavigatingToSpeechModel()
-            updateState(.idle)
+            stateMachine.transition(to: .idle)
             NotchManager.shared.hide()
         } else {
             let selected = candidates[index]
@@ -824,7 +800,7 @@ final class QuickDictationController {
             TranscriptionService.shared.reconfigure()
             print("QuickDictationController: Model switched to \(selected.displayName)")
 
-            // Set target state flags BEFORE clearing isModelSelecting via updateState(.idle)
+            // Set target state flags BEFORE clearing isModelSelecting via transition(.idle)
             // so displayPhase transitions directly (e.g. .modelSelecting → .confirmation)
             // without flashing through .idle.
             if selected.isDownloaded {
@@ -836,32 +812,23 @@ final class QuickDictationController {
                 }
                 NotchManager.shared.showModelsNeeded(appState.modelsNeededMessage)
             }
-            updateState(.idle)
+            stateMachine.transition(to: .idle)
         }
     }
+}
 
-    // MARK: - State Management
+// MARK: - DictationStateMachineDelegate
 
-    private func updateState(_ newState: State) {
-        state = newState
+extension QuickDictationController: DictationStateMachineDelegate {
 
-        // Stop duration timer when leaving recording
+    func stateMachine(
+        _ stateMachine: DictationStateMachine,
+        didTransitionFrom oldState: DictationState,
+        to newState: DictationState
+    ) {
+        // Reset recording duration when leaving recording
         if case .recording = newState {} else {
-            durationTimer?.invalidate()
-            durationTimer = nil
             appState.recordingDuration = 0
-        }
-
-        // Manage watchdog timer
-        watchdogTimer?.invalidate()
-        watchdogTimer = nil
-
-        if case .recording = newState {
-            // Start a 10-minute watchdog to prevent stuck expanded pill
-            watchdogTimer = Timer.scheduledTimer(withTimeInterval: 600.0, repeats: false) { [weak self] _ in
-                print("QuickDictationController: Watchdog triggered - force resetting stuck recording state")
-                self?.cancelCurrentSession()
-            }
         }
 
         // Update app state — wrapped in withAnimation so all displayPhase
