@@ -24,11 +24,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupMenuBar()
         setupNotch()
         initializeDatabase()
-        setupQuickDictation()
-        setupAudioDeviceMonitoring()
         setupSleepWakeHandling()
         configureAppBehavior()
 
+        if SettingsManager.shared.hasCompletedOnboarding {
+            startNormalOperation()
+        } else {
+            showOnboardingWizard()
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -62,6 +65,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupMenu() {
         let menu = NSMenu()
+
+        // Setup Wizard (re-run)
+        menu.addItem(NSMenuItem(
+            title: "Setup Wizard...",
+            action: #selector(openSetupWizard),
+            keyEquivalent: ""
+        ))
 
         // Settings
         menu.addItem(NSMenuItem(
@@ -135,6 +145,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openSettings() {
         SettingsWindowController.shared.show()
+    }
+
+    @objc private func openSetupWizard() {
+        let wizard = OnboardingWindowController.shared
+        wizard.onComplete = {
+            SettingsManager.shared.hasCompletedOnboarding = true
+        }
+        wizard.show()
     }
 
     @objc private func openHistory() {
@@ -313,6 +331,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+    }
+
+    // MARK: - First-Run Wizard
+
+    private func showOnboardingWizard() {
+        let wizard = OnboardingWindowController.shared
+        wizard.onComplete = { [weak self] in
+            self?.startNormalOperation()
+        }
+        wizard.show()
+    }
+
+    private func startNormalOperation() {
+        setupQuickDictation()
+        setupAudioDeviceMonitoring()
+
+        // Refresh model states in case onboarding just downloaded a model
+        FluidAudioModelManager.shared.refreshAllModelStates()
     }
 
     // MARK: - Configuration
