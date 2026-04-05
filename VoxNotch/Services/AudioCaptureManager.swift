@@ -67,6 +67,9 @@ final class AudioCaptureManager {
     /// The audio engine for capture
     private let audioEngine = AVAudioEngine()
 
+    /// Lock protecting state shared between the audio-tap thread and the main thread.
+    private let audioLock = NSLock()
+
     /// Buffer to accumulate recorded audio
     private var recordedBuffers: [AVAudioPCMBuffer] = []
 
@@ -487,7 +490,9 @@ final class AudioCaptureManager {
 
             // Accumulate buffers for file saving
             if self.accumulateBuffers {
-                self.recordedBuffers.append(resampledBuffer)
+                self.audioLock.withLock {
+                    self.recordedBuffers.append(resampledBuffer)
+                }
             }
 
             // Update audio level for visualization
@@ -513,13 +518,14 @@ final class AudioCaptureManager {
             isTapInstalled = false
         }
 
-        // Clear previous buffers
-        recordedBuffers.removeAll()
-        previousBands = [Float](repeating: 0, count: 6)
-
-        // Reset silence detection state
-        silenceStartTime = nil
-        silenceWarningTriggered = false
+        // Clear previous buffers and reset audio-thread shared state
+        audioLock.withLock {
+            recordedBuffers.removeAll()
+            previousBands = [Float](repeating: 0, count: 6)
+            silenceStartTime = nil
+            silenceWarningTriggered = false
+            lastAudioLevelUpdate = .distantPast
+        }
 
         let targetDeviceID = selectedDeviceID ?? defaultInputDeviceID()
         let currentDeviceID = getCurrentDeviceID()
@@ -584,19 +590,28 @@ final class AudioCaptureManager {
         let duration = recordingStartTime.map { Date().timeIntervalSince($0) } ?? 0
         print("AudioCaptureManager: Stopped recording, duration: \(duration)s")
 
-        guard !recordedBuffers.isEmpty else {
+        // Snapshot and clear buffers under lock, then process outside lock
+        let bufferSnapshot = audioLock.withLock {
+            let snapshot = recordedBuffers
+            recordedBuffers.removeAll()
+            return snapshot
+        }
+
+        guard !bufferSnapshot.isEmpty else {
             throw AudioCaptureError.noAudioRecorded
         }
 
         // Combine all buffers and save to file
-        let fileURL = try saveBuffersToFile()
+        let fileURL = try saveBuffersToFile(from: bufferSnapshot)
 
         // Reset audio level
         DispatchQueue.main.async {
             AppState.shared.audioLevel = 0
             AppState.shared.audioFrequencyBands = [Float](repeating: 0, count: 6)
         }
-        previousBands = [Float](repeating: 0, count: 6)
+        audioLock.withLock {
+            previousBands = [Float](repeating: 0, count: 6)
+        }
 
         return CaptureResult(
             fileURL: fileURL,
@@ -624,7 +639,10 @@ final class AudioCaptureManager {
 
         audioEngine.stop()
         isRecording = false
-        recordedBuffers.removeAll()
+        audioLock.withLock {
+            recordedBuffers.removeAll()
+            previousBands = [Float](repeating: 0, count: 6)
+        }
         resamplingConverter = nil
         accumulateBuffers = true
 
@@ -632,15 +650,14 @@ final class AudioCaptureManager {
             AppState.shared.audioLevel = 0
             AppState.shared.audioFrequencyBands = [Float](repeating: 0, count: 6)
         }
-        previousBands = [Float](repeating: 0, count: 6)
 
         print("AudioCaptureManager: Recording cancelled")
     }
 
     // MARK: - Private Methods
 
-    private func saveBuffersToFile() throws -> URL {
-        guard let firstBuffer = recordedBuffers.first else {
+    private func saveBuffersToFile(from buffers: [AVAudioPCMBuffer]) throws -> URL {
+        guard let firstBuffer = buffers.first else {
             throw AudioCaptureError.noAudioRecorded
         }
 
@@ -655,7 +672,7 @@ final class AudioCaptureManager {
         )!
 
         // Calculate total frame count
-        let totalFrames = recordedBuffers.reduce(0) { $0 + Int($1.frameLength) }
+        let totalFrames = buffers.reduce(0) { $0 + Int($1.frameLength) }
 
         // Create a combined buffer
         guard let combinedBuffer = AVAudioPCMBuffer(
@@ -667,7 +684,7 @@ final class AudioCaptureManager {
 
         // Copy all buffers into combined buffer
         var offset: AVAudioFrameCount = 0
-        for buffer in recordedBuffers {
+        for buffer in buffers {
             let frameCount = buffer.frameLength
             guard let srcData = buffer.floatChannelData,
                   let dstData = combinedBuffer.floatChannelData else { continue }
@@ -795,6 +812,7 @@ final class AudioCaptureManager {
         // dB floor: -45 dB maps to 0, 0 dB maps to 1 (middle ground for sensitivity)
         let dbFloor: Float = -45.0
 
+        let lockedPreviousBands = audioLock.withLock { previousBands }
         var bands = [Float](repeating: 0, count: 6)
         magnitudes.withUnsafeBufferPointer { magBuf in
             for i in 0..<6 {
@@ -810,7 +828,7 @@ final class AudioCaptureManager {
                 let target = min(1, normalized)
 
                 // Asymmetric smoothing (fast attack, slow decay)
-                let previous = previousBands[i]
+                let previous = lockedPreviousBands[i]
                 if target > previous {
                     // Fast attack (snappy)
                     bands[i] = previous + (target - previous) * 0.95
@@ -820,8 +838,10 @@ final class AudioCaptureManager {
                 }
             }
         }
-        
-        previousBands = bands
+
+        audioLock.withLock {
+            previousBands = bands
+        }
 
         return bands
     }
@@ -846,8 +866,14 @@ final class AudioCaptureManager {
         let bands = computeFrequencyBands(from: channelDataValueArray, sampleRate: sampleRate)
 
         let now = Date()
-        if now.timeIntervalSince(lastAudioLevelUpdate) >= 1.0 / 60.0 {
-            lastAudioLevelUpdate = now
+        let shouldUpdateLevel = audioLock.withLock {
+            if now.timeIntervalSince(lastAudioLevelUpdate) >= 1.0 / 60.0 {
+                lastAudioLevelUpdate = now
+                return true
+            }
+            return false
+        }
+        if shouldUpdateLevel {
             DispatchQueue.main.async {
                 AppState.shared.audioLevel = normalizedLevel
                 AppState.shared.audioFrequencyBands = bands
@@ -859,8 +885,10 @@ final class AudioCaptureManager {
 
         guard settings.enableAutoStopOnSilence else {
             // Reset silence tracking when disabled
-            silenceStartTime = nil
-            silenceWarningTriggered = false
+            audioLock.withLock {
+                silenceStartTime = nil
+                silenceWarningTriggered = false
+            }
             return
         }
 
@@ -875,39 +903,41 @@ final class AudioCaptureManager {
 
         let isSilent = rmsDB < settings.silenceThresholdDB
 
-        if isSilent {
-            // Start or continue silence tracking
-            if silenceStartTime == nil {
-                silenceStartTime = Date()
-                silenceWarningTriggered = false
-            }
-
-            if let startTime = silenceStartTime {
-                let silenceDuration = Date().timeIntervalSince(startTime)
-                let thresholdDuration = settings.silenceDurationSeconds
-
-                // Check for warning (75% of threshold)
-                if !silenceWarningTriggered && silenceDuration >= thresholdDuration * silenceWarningRatio {
-                    silenceWarningTriggered = true
-                    DispatchQueue.main.async { [weak self] in
-                        self?.onSilenceWarning?()
-                    }
-                }
-
-                // Check for auto-stop threshold
-                if silenceDuration >= thresholdDuration {
-                    DispatchQueue.main.async { [weak self] in
-                        self?.onSilenceThresholdReached?()
-                    }
-                    // Reset to prevent repeated triggers
-                    silenceStartTime = nil
+        audioLock.withLock {
+            if isSilent {
+                // Start or continue silence tracking
+                if silenceStartTime == nil {
+                    silenceStartTime = Date()
                     silenceWarningTriggered = false
                 }
+
+                if let startTime = silenceStartTime {
+                    let silenceDuration = Date().timeIntervalSince(startTime)
+                    let thresholdDuration = settings.silenceDurationSeconds
+
+                    // Check for warning (75% of threshold)
+                    if !silenceWarningTriggered && silenceDuration >= thresholdDuration * silenceWarningRatio {
+                        silenceWarningTriggered = true
+                        DispatchQueue.main.async { [weak self] in
+                            self?.onSilenceWarning?()
+                        }
+                    }
+
+                    // Check for auto-stop threshold
+                    if silenceDuration >= thresholdDuration {
+                        DispatchQueue.main.async { [weak self] in
+                            self?.onSilenceThresholdReached?()
+                        }
+                        // Reset to prevent repeated triggers
+                        silenceStartTime = nil
+                        silenceWarningTriggered = false
+                    }
+                }
+            } else {
+                // Speech detected, reset silence tracking
+                silenceStartTime = nil
+                silenceWarningTriggered = false
             }
-        } else {
-            // Speech detected, reset silence tracking
-            silenceStartTime = nil
-            silenceWarningTriggered = false
         }
     }
 
