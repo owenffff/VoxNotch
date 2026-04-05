@@ -27,18 +27,7 @@ final class QuickDictationControllerTests: XCTestCase {
         mockTextOutput = MockTextOutputting()
         appState = AppState.shared
 
-        // Reset AppState between tests
-        appState.lastAudioURL = nil
-        appState.lastError = nil
-        appState.lastErrorRecovery = nil
-        appState.isRecording = false
-        appState.isTranscribing = false
-        appState.isWarmingUp = false
-        appState.isProcessingLLM = false
-        appState.isModelSelecting = false
-        appState.isToneSelecting = false
-        appState.silenceWarningActive = false
-        appState.lastOutputWasClipboard = false
+        appState.reset()
 
         controller = QuickDictationController(
             audioManager: mockAudio,

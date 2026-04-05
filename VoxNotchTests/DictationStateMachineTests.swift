@@ -327,3 +327,275 @@ final class DictationStateMachineTests: XCTestCase {
         XCTAssertEqual(delegate.transitions[1], MockStateMachineDelegate.Transition(from: .recording, to: .transcribing))
     }
 }
+
+// MARK: - Pipeline Tests
+
+@MainActor
+final class DictationPipelineTests: XCTestCase {
+
+    private var mockAudio: MockAudioRecording!
+    private var mockTranscription: MockTranscriptionEngine!
+    private var mockLLM: MockLLMProcessing!
+    private var mockTextOutput: MockTextOutputting!
+    private var sm: DictationStateMachine!
+    private var delegate: MockStateMachineDelegate!
+
+    override func setUp() {
+        super.setUp()
+        mockAudio = MockAudioRecording()
+        mockTranscription = MockTranscriptionEngine()
+        mockLLM = MockLLMProcessing()
+        mockTextOutput = MockTextOutputting()
+        sm = DictationStateMachine(
+            audioManager: mockAudio,
+            transcriptionEngine: mockTranscription,
+            llmProcessor: mockLLM,
+            textOutputManager: mockTextOutput
+        )
+        delegate = MockStateMachineDelegate()
+        sm.delegate = delegate
+    }
+
+    override func tearDown() {
+        sm = nil
+        delegate = nil
+        mockAudio = nil
+        mockTranscription = nil
+        mockLLM = nil
+        mockTextOutput = nil
+        super.tearDown()
+    }
+
+    // MARK: - beginRecording
+
+    func testBeginRecordingSetsStateAndStartsAudio() throws {
+        try sm.beginRecording()
+
+        XCTAssertEqual(sm.state, .recording)
+        XCTAssertEqual(mockAudio.startRecordingCallCount, 1)
+        XCTAssertTrue(mockAudio.accumulateBuffers)
+        XCTAssertEqual(mockTranscription.preloadCallCount, 1)
+        XCTAssertNotNil(sm.recordingStartTime)
+    }
+
+    func testBeginRecordingThrowsOnAudioError() {
+        mockAudio.stubbedStartError = NSError(domain: "test", code: 1)
+
+        XCTAssertThrowsError(try sm.beginRecording())
+        // State should still be .recording from the transition before the throw
+        // but the controller wraps this in do/catch and transitions to .error
+    }
+
+    // MARK: - stopRecordingAndTranscribe: Happy Path
+
+    func testStopRecordingTranscribesAndOutputsText() async throws {
+        try sm.beginRecording()
+        sm.recordingStartTime = Date().addingTimeInterval(-2) // 2 seconds ago
+
+        mockTextOutput.hasFocusedTextInputValue = true
+
+        var outputSuccessCalled = false
+        var wasClipboard = true
+        sm.onPipelineOutputSuccess = { clipboard in
+            outputSuccessCalled = true
+            wasClipboard = clipboard
+        }
+
+        sm.stopRecordingAndTranscribe(savedFrontmostApp: nil)
+        try await Task.sleep(for: .milliseconds(300))
+
+        XCTAssertEqual(mockAudio.stopRecordingCallCount, 1)
+        XCTAssertEqual(mockTranscription.transcribeCallCount, 1)
+        XCTAssertEqual(mockTextOutput.outputCallCount, 1)
+        XCTAssertTrue(outputSuccessCalled)
+        XCTAssertFalse(wasClipboard)
+        XCTAssertEqual(sm.state, .idle)
+    }
+
+    // MARK: - stopRecordingAndTranscribe: Too Short
+
+    func testStopRecordingTooShortCancels() throws {
+        try sm.beginRecording()
+        // recordingStartTime is just now → duration < 0.5s
+
+        var cancelCalled = false
+        sm.onPipelineCancelled = { cancelCalled = true }
+
+        sm.stopRecordingAndTranscribe(savedFrontmostApp: nil)
+
+        XCTAssertTrue(cancelCalled)
+        XCTAssertEqual(sm.state, .idle)
+        XCTAssertEqual(mockAudio.stopRecordingCallCount, 0)
+    }
+
+    // MARK: - stopRecordingAndTranscribe: Empty Transcription
+
+    func testEmptyTranscriptionReturnsToIdle() async throws {
+        try sm.beginRecording()
+        sm.recordingStartTime = Date().addingTimeInterval(-2)
+
+        mockTranscription.stubbedResult = TranscriptionResult(
+            text: "", confidence: nil, audioDuration: 1.0,
+            processingTime: 0.1, provider: "Mock", language: nil, segments: nil
+        )
+
+        sm.stopRecordingAndTranscribe(savedFrontmostApp: nil)
+        try await Task.sleep(for: .milliseconds(300))
+
+        XCTAssertEqual(sm.state, .idle)
+        XCTAssertEqual(mockTextOutput.outputCallCount, 0)
+    }
+
+    // MARK: - stopRecordingAndTranscribe: Low Confidence
+
+    func testLowConfidenceDiscards() async throws {
+        try sm.beginRecording()
+        sm.recordingStartTime = Date().addingTimeInterval(-2)
+
+        mockTranscription.stubbedResult = TranscriptionResult(
+            text: "phantom", confidence: 0.3, audioDuration: 1.0,
+            processingTime: 0.1, provider: "Mock", language: nil, segments: nil
+        )
+
+        sm.stopRecordingAndTranscribe(savedFrontmostApp: nil)
+        try await Task.sleep(for: .milliseconds(300))
+
+        XCTAssertEqual(sm.state, .idle)
+        XCTAssertEqual(mockTextOutput.outputCallCount, 0)
+    }
+
+    // MARK: - stopRecordingAndTranscribe: Clipboard Fallback
+
+    func testClipboardFallbackWhenNoFocusedInput() async throws {
+        try sm.beginRecording()
+        sm.recordingStartTime = Date().addingTimeInterval(-2)
+
+        mockTextOutput.hasFocusedTextInputValue = false
+
+        var wasClipboard = false
+        sm.onPipelineOutputSuccess = { clipboard in wasClipboard = clipboard }
+
+        sm.stopRecordingAndTranscribe(savedFrontmostApp: nil)
+        try await Task.sleep(for: .milliseconds(300))
+
+        XCTAssertTrue(wasClipboard)
+        XCTAssertEqual(mockTextOutput.copyCallCount, 1)
+        XCTAssertEqual(mockTextOutput.outputCallCount, 0)
+    }
+
+    // MARK: - stopRecordingAndTranscribe: LLM Processing
+
+    func testLLMProcessingApplied() async throws {
+        try sm.beginRecording()
+        sm.recordingStartTime = Date().addingTimeInterval(-2)
+
+        mockLLM.isEnabled = true
+        mockLLM.stubbedResult = .success(processedText: "enhanced text")
+        mockTextOutput.hasFocusedTextInputValue = true
+
+        sm.stopRecordingAndTranscribe(savedFrontmostApp: nil)
+        try await Task.sleep(for: .milliseconds(300))
+
+        XCTAssertEqual(mockTextOutput.lastOutputText, "enhanced text")
+    }
+
+    func testLLMFallbackFiresWarning() async throws {
+        try sm.beginRecording()
+        sm.recordingStartTime = Date().addingTimeInterval(-2)
+
+        mockLLM.isEnabled = true
+        mockLLM.stubbedResult = .fallback(originalText: "raw text", error: LLMError.apiError("API timeout"))
+        mockTextOutput.hasFocusedTextInputValue = true
+
+        var warningMessage: String?
+        sm.onLLMWarning = { msg in warningMessage = msg }
+
+        sm.stopRecordingAndTranscribe(savedFrontmostApp: nil)
+        try await Task.sleep(for: .milliseconds(300))
+
+        XCTAssertNotNil(warningMessage)
+        // Should still output the fallback text
+        XCTAssertGreaterThan(mockTextOutput.outputCallCount + mockTextOutput.copyCallCount, 0)
+    }
+
+    // MARK: - stopRecordingAndTranscribe: Error with Audio Preservation
+
+    func testTranscriptionErrorPreservesAudioURL() async throws {
+        try sm.beginRecording()
+        sm.recordingStartTime = Date().addingTimeInterval(-2)
+
+        mockTranscription.stubbedError = NSError(
+            domain: "test", code: 1,
+            userInfo: [NSLocalizedDescriptionKey: "Transcription failed"]
+        )
+
+        var errorAudioURL: URL?
+        sm.onPipelineErrorWithAudio = { url in errorAudioURL = url }
+
+        sm.stopRecordingAndTranscribe(savedFrontmostApp: nil)
+        try await Task.sleep(for: .milliseconds(300))
+
+        XCTAssertNotNil(errorAudioURL)
+        if case .error = sm.state {} else {
+            XCTFail("Expected error state")
+        }
+    }
+
+    // MARK: - retryTranscription
+
+    func testRetryTranscriptionSuccess() async throws {
+        let tempFile = FileManager.default.temporaryDirectory.appendingPathComponent("retry_test.wav")
+        FileManager.default.createFile(atPath: tempFile.path, contents: Data([0]), attributes: nil)
+        defer { try? FileManager.default.removeItem(at: tempFile) }
+
+        mockTextOutput.hasFocusedTextInputValue = true
+
+        var outputSuccessCalled = false
+        sm.onPipelineOutputSuccess = { _ in outputSuccessCalled = true }
+
+        sm.retryTranscription(audioURL: tempFile, savedFrontmostApp: nil)
+        try await Task.sleep(for: .milliseconds(300))
+
+        XCTAssertEqual(mockTranscription.transcribeCallCount, 1)
+        XCTAssertTrue(outputSuccessCalled)
+        XCTAssertEqual(sm.state, .idle)
+    }
+
+    func testRetryTranscriptionEmptyText() async throws {
+        let tempFile = FileManager.default.temporaryDirectory.appendingPathComponent("retry_empty.wav")
+        FileManager.default.createFile(atPath: tempFile.path, contents: Data([0]), attributes: nil)
+        defer { try? FileManager.default.removeItem(at: tempFile) }
+
+        mockTranscription.stubbedResult = TranscriptionResult(
+            text: "", confidence: nil, audioDuration: 1.0,
+            processingTime: 0.1, provider: "Mock", language: nil, segments: nil
+        )
+
+        sm.retryTranscription(audioURL: tempFile, savedFrontmostApp: nil)
+        try await Task.sleep(for: .milliseconds(300))
+
+        if case .error = sm.state {} else {
+            XCTFail("Expected error state for empty retry")
+        }
+    }
+
+    // MARK: - cancelPipeline
+
+    func testCancelPipelineResetsState() throws {
+        try sm.beginRecording()
+        sm.cancelPipeline()
+
+        XCTAssertEqual(sm.state, .idle)
+        XCTAssertEqual(mockAudio.cancelRecordingCallCount, 1)
+    }
+
+    // MARK: - stopRecordingQuietly
+
+    func testStopRecordingQuietlyCancelsAudio() throws {
+        try sm.beginRecording()
+        sm.stopRecordingQuietly()
+
+        XCTAssertEqual(sm.state, .idle)
+        XCTAssertEqual(mockAudio.cancelRecordingCallCount, 1)
+    }
+}

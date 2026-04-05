@@ -53,11 +53,29 @@ final class TutorialHotkeyCoordinator {
   private var currentIndex = 0
   private var feedbackTimer: Timer?
 
+  /// Which tutorial items are available (filtered when no model is downloaded)
+  private var availableItems: [TutorialChecklistItem] = TutorialChecklistItem.allCases
+
   // MARK: - Lifecycle
 
-  func activate() {
+  func activate(hasModel: Bool = true) {
     guard !isActive else { return }
     isActive = true
+
+    // Filter available items based on whether a model is downloaded
+    if hasModel {
+      availableItems = TutorialChecklistItem.allCases
+    } else {
+      availableItems = [.pressHotkey, .releaseHotkey]
+    }
+
+    // Reset states for available items
+    currentIndex = 0
+    itemStates = [:]
+    for (index, item) in availableItems.enumerated() {
+      itemStates[item] = index == 0 ? .active : .locked
+    }
+    allCompleted = false
 
     // Start the full dictation pipeline so the notch responds to hotkey events.
     // These calls are idempotent — safe to call again in startNormalOperation().
@@ -139,7 +157,8 @@ final class TutorialHotkeyCoordinator {
   // MARK: - State Management
 
   private var currentItem: TutorialChecklistItem? {
-    TutorialChecklistItem(rawValue: currentIndex)
+    guard currentIndex < availableItems.count else { return nil }
+    return availableItems[currentIndex]
   }
 
   private func completeCurrentItem(feedback: String) {
@@ -149,8 +168,8 @@ final class TutorialHotkeyCoordinator {
     showFeedback(feedback)
     currentIndex += 1
 
-    if let nextItem = TutorialChecklistItem(rawValue: currentIndex) {
-      itemStates[nextItem] = .active
+    if currentIndex < availableItems.count {
+      itemStates[availableItems[currentIndex]] = .active
     } else {
       allCompleted = true
     }

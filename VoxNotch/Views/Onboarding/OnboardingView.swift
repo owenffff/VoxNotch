@@ -7,6 +7,14 @@
 
 import SwiftUI
 
+// MARK: - Onboarding Step State
+
+enum OnboardingStepState: String {
+  case pending
+  case completed
+  case skipped
+}
+
 // MARK: - Onboarding Step
 
 enum OnboardingStep: Int, CaseIterable {
@@ -357,6 +365,11 @@ struct OnboardingView: View {
 
   // MARK: - Tutorial Step (Interactive)
 
+  /// Whether a speech model is available (downloaded) for the tutorial
+  private var hasModelForTutorial: Bool {
+    isModelDownloaded || selectedModel.isDownloaded
+  }
+
   private var tutorialStep: some View {
     VStack(spacing: 16) {
       Image(systemName: "hand.tap.fill")
@@ -384,18 +397,20 @@ struct OnboardingView: View {
           title: "Release \(SettingsManager.shared.hotkeyModifiers)",
           description: "Let go of the hotkey"
         )
-        tutorialChecklistRow(
-          item: .modelSwitch,
-          icon: "arrow.left.arrow.right",
-          title: "Hold hotkey + press ← or →",
-          description: "Quick-switch speech model"
-        )
-        tutorialChecklistRow(
-          item: .toneSwitch,
-          icon: "arrow.up.arrow.down",
-          title: "Hold hotkey + press ↑ or ↓",
-          description: "Quick-switch tone preset"
-        )
+        if hasModelForTutorial {
+          tutorialChecklistRow(
+            item: .modelSwitch,
+            icon: "arrow.left.arrow.right",
+            title: "Hold hotkey + press ← or →",
+            description: "Quick-switch speech model"
+          )
+          tutorialChecklistRow(
+            item: .toneSwitch,
+            icon: "arrow.up.arrow.down",
+            title: "Hold hotkey + press ↑ or ↓",
+            description: "Quick-switch tone preset"
+          )
+        }
       }
 
       // Feedback banner
@@ -419,7 +434,7 @@ struct OnboardingView: View {
     .padding()
     .animation(.spring(response: 0.3), value: tutorialCoordinator.feedbackText != nil)
     .animation(.spring(response: 0.3), value: tutorialCoordinator.allCompleted)
-    .onAppear { tutorialCoordinator.activate() }
+    .onAppear { tutorialCoordinator.activate(hasModel: hasModelForTutorial) }
     .onDisappear { tutorialCoordinator.deactivate() }
   }
 
@@ -495,20 +510,52 @@ struct OnboardingView: View {
 
   // MARK: - Complete Step
 
+  private var hasSkippedSteps: Bool {
+    SettingsManager.shared.onboardingPermissionsState == OnboardingStepState.skipped.rawValue
+      || SettingsManager.shared.onboardingModelState == OnboardingStepState.skipped.rawValue
+      || SettingsManager.shared.onboardingTutorialState == OnboardingStepState.skipped.rawValue
+  }
+
+  private var skippedStepMessages: [String] {
+    var messages: [String] = []
+    if SettingsManager.shared.onboardingPermissionsState == OnboardingStepState.skipped.rawValue {
+      messages.append("Grant Microphone and Accessibility permissions in Settings.")
+    }
+    if SettingsManager.shared.onboardingModelState == OnboardingStepState.skipped.rawValue {
+      messages.append("Download a speech model in Settings before dictating.")
+    }
+    return messages
+  }
+
   private var completeStep: some View {
     VStack(spacing: 24) {
-      Image(systemName: "checkmark.seal.fill")
+      Image(systemName: hasSkippedSteps ? "exclamationmark.triangle.fill" : "checkmark.seal.fill")
         .font(.system(size: 80))
-        .foregroundStyle(.green)
+        .foregroundStyle(hasSkippedSteps ? .orange : .green)
 
-      Text("You're All Set!")
+      Text(hasSkippedSteps ? "You're Almost Set!" : "You're All Set!")
         .font(.largeTitle)
         .fontWeight(.bold)
 
-      Text("VoxNotch is ready.\nHold \(SettingsManager.shared.hotkeyModifiers) to start dictating.")
-        .font(.title3)
-        .foregroundStyle(.secondary)
-        .multilineTextAlignment(.center)
+      if hasSkippedSteps {
+        VStack(spacing: 6) {
+          Text("VoxNotch is ready.\nHold \(SettingsManager.shared.hotkeyModifiers) to start dictating.")
+            .font(.title3)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+
+          ForEach(skippedStepMessages, id: \.self) { message in
+            Label(message, systemImage: "arrow.right.circle")
+              .font(.callout)
+              .foregroundStyle(.secondary)
+          }
+        }
+      } else {
+        Text("VoxNotch is ready.\nHold \(SettingsManager.shared.hotkeyModifiers) to start dictating.")
+          .font(.title3)
+          .foregroundStyle(.secondary)
+          .multilineTextAlignment(.center)
+      }
 
       VStack(spacing: 8) {
         Text("Find VoxNotch in your menu bar")
@@ -538,6 +585,15 @@ struct OnboardingView: View {
         .disabled(isDownloading)
       }
 
+      if canSkipCurrentStep {
+        Button("Skip") {
+          skipCurrentStep()
+        }
+        .buttonStyle(.borderless)
+        .foregroundStyle(.secondary)
+        .disabled(isDownloading)
+      }
+
       Spacer()
 
       if currentStep == .welcome {
@@ -558,14 +614,48 @@ struct OnboardingView: View {
           if currentStep == .complete {
             completeOnboarding()
           } else {
+            completeCurrentStep()
             advanceStep()
           }
         }
         .buttonStyle(.borderedProminent)
         .disabled(isDownloading)
         .disabled(currentStep == .model && !isModelDownloaded)
-        .disabled(currentStep == .tutorial && !tutorialCoordinator.allCompleted)
       }
+    }
+  }
+
+  private var canSkipCurrentStep: Bool {
+    switch currentStep {
+    case .permissions, .model, .tutorial: true
+    case .welcome, .complete: false
+    }
+  }
+
+  private func skipCurrentStep() {
+    switch currentStep {
+    case .permissions:
+      SettingsManager.shared.onboardingPermissionsState = OnboardingStepState.skipped.rawValue
+    case .model:
+      SettingsManager.shared.onboardingModelState = OnboardingStepState.skipped.rawValue
+    case .tutorial:
+      SettingsManager.shared.onboardingTutorialState = OnboardingStepState.skipped.rawValue
+    case .welcome, .complete:
+      break
+    }
+    advanceStep()
+  }
+
+  private func completeCurrentStep() {
+    switch currentStep {
+    case .permissions:
+      SettingsManager.shared.onboardingPermissionsState = OnboardingStepState.completed.rawValue
+    case .model:
+      SettingsManager.shared.onboardingModelState = OnboardingStepState.completed.rawValue
+    case .tutorial:
+      SettingsManager.shared.onboardingTutorialState = OnboardingStepState.completed.rawValue
+    case .welcome, .complete:
+      break
     }
   }
 

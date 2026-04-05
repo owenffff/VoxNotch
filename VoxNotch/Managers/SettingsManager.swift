@@ -105,6 +105,9 @@ final class SettingsManager {
 
     /// Onboarding
     static let hasCompletedOnboarding = "hasCompletedOnboarding"
+    static let onboardingPermissionsState = "onboardingPermissionsState"
+    static let onboardingModelState = "onboardingModelState"
+    static let onboardingTutorialState = "onboardingTutorialState"
   }
 
   /// Current settings version for migrations
@@ -402,6 +405,22 @@ final class SettingsManager {
   var hasCompletedOnboarding: Bool {
     get { UserDefaults.standard.bool(forKey: Keys.hasCompletedOnboarding) }
     set { UserDefaults.standard.set(newValue, forKey: Keys.hasCompletedOnboarding) }
+  }
+
+  /// Per-step onboarding state (pending / completed / skipped)
+  var onboardingPermissionsState: String {
+    get { UserDefaults.standard.string(forKey: Keys.onboardingPermissionsState) ?? "pending" }
+    set { UserDefaults.standard.set(newValue, forKey: Keys.onboardingPermissionsState) }
+  }
+
+  var onboardingModelState: String {
+    get { UserDefaults.standard.string(forKey: Keys.onboardingModelState) ?? "pending" }
+    set { UserDefaults.standard.set(newValue, forKey: Keys.onboardingModelState) }
+  }
+
+  var onboardingTutorialState: String {
+    get { UserDefaults.standard.string(forKey: Keys.onboardingTutorialState) ?? "pending" }
+    set { UserDefaults.standard.set(newValue, forKey: Keys.onboardingTutorialState) }
   }
 
   // MARK: - Initialization
