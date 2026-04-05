@@ -41,8 +41,10 @@ final class QuickDictationController {
 
     // Dependencies
     private let hotkeyManager: HotkeyManager
-    private let audioManager: AudioCaptureManager
-    private let textOutputManager: TextOutputManager
+    private let audioManager: AudioRecording
+    private let textOutputManager: TextOutputting
+    private let transcriptionEngine: TranscriptionEngine
+    private let llmProcessor: LLMProcessing
     private let appState: AppState
 
     /// Minimum recording duration to avoid accidental taps and phantom words
@@ -57,11 +59,20 @@ final class QuickDictationController {
 
     // MARK: - Initialization
 
-    private init() {
-        self.hotkeyManager = HotkeyManager.shared
-        self.audioManager = AudioCaptureManager.shared
-        self.textOutputManager = TextOutputManager.shared
-        self.appState = AppState.shared
+    init(
+        hotkeyManager: HotkeyManager = .shared,
+        audioManager: AudioRecording = AudioCaptureManager.shared,
+        textOutputManager: TextOutputting = TextOutputManager.shared,
+        transcriptionEngine: TranscriptionEngine = TranscriptionService.shared,
+        llmProcessor: LLMProcessing = LLMService.shared,
+        appState: AppState = .shared
+    ) {
+        self.hotkeyManager = hotkeyManager
+        self.audioManager = audioManager
+        self.textOutputManager = textOutputManager
+        self.transcriptionEngine = transcriptionEngine
+        self.llmProcessor = llmProcessor
+        self.appState = appState
 
         stateMachine.delegate = self
 
@@ -325,7 +336,7 @@ final class QuickDictationController {
             print("QuickDictationController: Audio capture started")
 
             // Preload the model in the background to reduce cold start time
-            TranscriptionService.shared.preloadModel()
+            transcriptionEngine.preloadModel()
         } catch {
             print("QuickDictationController: Failed to start audio capture: \(error)")
             stateMachine.transition(to: .error(error))
@@ -374,7 +385,7 @@ final class QuickDictationController {
 
             do {
                 // Check if model is ready, if not show warming up state
-                let isReady = await TranscriptionService.shared.isReady
+                let isReady = await transcriptionEngine.isReady
                 if !isReady {
                     await MainActor.run {
                         stateMachine.transition(to: .warmingUp)
@@ -386,7 +397,7 @@ final class QuickDictationController {
                 }
 
                 // Ensure batch model is loaded (will block if not ready)
-                try await TranscriptionService.shared.ensureModelReady()
+                try await transcriptionEngine.ensureModelReady()
 
                 guard self.stateMachine.isSessionValid(capturedSessionID) else {
                     print("QuickDictationController: Session cancelled after ensureModelReady, discarding")
@@ -401,7 +412,7 @@ final class QuickDictationController {
                 }
 
                 // Transcribe the WAV file
-                let result = try await TranscriptionService.shared.transcribe(audioURL: captureResult.fileURL)
+                let result = try await transcriptionEngine.transcribe(audioURL: captureResult.fileURL, language: nil)
 
                 guard self.stateMachine.isSessionValid(capturedSessionID) else {
                     print("QuickDictationController: Session cancelled after transcription, discarding")
@@ -447,8 +458,8 @@ final class QuickDictationController {
                 }
 
                 let finalText: String
-                if LLMService.shared.isEnabled {
-                    let result = await LLMService.shared.processWithResult(text: text)
+                if llmProcessor.isEnabled {
+                    let result = await llmProcessor.processWithResult(text: text)
                     finalText = result.text
 
                     // Non-blocking: warn user if LLM failed but still output original text
@@ -552,12 +563,12 @@ final class QuickDictationController {
         Task {
             do {
                 await MainActor.run { stateMachine.transition(to: .warmingUp) }
-                try await TranscriptionService.shared.ensureModelReady()
+                try await transcriptionEngine.ensureModelReady()
 
                 guard self.stateMachine.isSessionValid(capturedSessionID) else { return }
 
                 await MainActor.run { stateMachine.transition(to: .transcribing) }
-                let result = try await TranscriptionService.shared.transcribe(audioURL: audioURL)
+                let result = try await transcriptionEngine.transcribe(audioURL: audioURL, language: nil)
 
                 guard self.stateMachine.isSessionValid(capturedSessionID) else { return }
 
@@ -797,7 +808,7 @@ final class QuickDictationController {
         } else {
             let selected = candidates[index]
             SettingsManager.shared.speechModel = selected.settingsID
-            TranscriptionService.shared.reconfigure()
+            transcriptionEngine.reconfigure()
             print("QuickDictationController: Model switched to \(selected.displayName)")
 
             // Set target state flags BEFORE clearing isModelSelecting via transition(.idle)
