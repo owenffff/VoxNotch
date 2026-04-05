@@ -26,8 +26,9 @@ struct HistoryTab: View {
   var body: some View {
     Form {
       Section {
-        Toggle("Save dictation history", isOn: $settings.historyEnabled)
-          .help("Saves all your transcriptions locally so you can search and review them later.")
+        Toggle(isOn: $settings.historyEnabled) {
+          InfoLabel(title: "Save dictation history", tooltip: "Saves all your transcriptions locally so you can search and review them later.")
+        }
       } header: {
         Text("History")
       } footer: {
@@ -36,15 +37,17 @@ struct HistoryTab: View {
 
       if settings.historyEnabled {
         Section {
-          Picker("Auto-delete after", selection: $settings.historyRetentionDays) {
+          Picker(selection: $settings.historyRetentionDays) {
             ForEach(retentionOptions, id: \.days) { option in
               Text(option.label).tag(option.days)
             }
+          } label: {
+            InfoLabel(title: "Auto-delete after", tooltip: "Automatically removes transcriptions older than this. Set to \"Forever\" to keep everything.")
           }
-          .help("Automatically removes transcriptions older than this. Set to \"Forever\" to keep everything.")
 
-          Toggle("Save audio recordings", isOn: $settings.saveAudioRecordings)
-            .help("Also saves the original audio alongside each transcription. Uses more disk space.")
+          Toggle(isOn: $settings.saveAudioRecordings) {
+            InfoLabel(title: "Save audio recordings", tooltip: "Also saves the original audio alongside each transcription. Uses more disk space.")
+          }
         } header: {
           Text("Retention")
         } footer: {

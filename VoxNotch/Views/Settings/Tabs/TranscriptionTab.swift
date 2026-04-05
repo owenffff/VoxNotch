@@ -16,11 +16,13 @@ struct TranscriptionTab: View {
     Form {
       // MARK: Delivery
       Section {
-        Toggle("Instant output (paste via clipboard)", isOn: $settings.useClipboardForOutput)
-          .help("Pastes transcription directly into the active app using the clipboard. Temporarily replaces your clipboard contents.")
+        Toggle(isOn: $settings.useClipboardForOutput) {
+          InfoLabel(title: "Instant output (paste via clipboard)", tooltip: "Pastes transcription directly into the active app using the clipboard. Temporarily replaces your clipboard contents.")
+        }
 
-        Toggle("Restore clipboard after paste", isOn: $settings.restoreClipboard)
-          .help("After pasting, restores whatever was on your clipboard before the transcription.")
+        Toggle(isOn: $settings.restoreClipboard) {
+          InfoLabel(title: "Restore clipboard after paste", tooltip: "After pasting, restores whatever was on your clipboard before the transcription.")
+        }
 
         Toggle("Add space after transcription", isOn: $settings.addSpaceAfterTranscription)
       } header: {
@@ -31,11 +33,13 @@ struct TranscriptionTab: View {
 
       // MARK: Text Cleanup
       Section {
-        Toggle("Remove filler words", isOn: $settings.removeFillerWords)
-          .help("Removes \"um\", \"uh\", \"like\", \"you know\" and similar filler words from transcriptions.")
+        Toggle(isOn: $settings.removeFillerWords) {
+          InfoLabel(title: "Remove filler words", tooltip: "Removes \"um\", \"uh\", \"like\", \"you know\" and similar filler words from transcriptions.")
+        }
 
-        Toggle("Normalize numbers & currency", isOn: $settings.applyITN)
-          .help("Convert spoken numbers to written form: \"two hundred\" \u{2192} \"200\", \"five dollars\" \u{2192} \"$5\"")
+        Toggle(isOn: $settings.applyITN) {
+          InfoLabel(title: "Normalize numbers & currency", tooltip: "Convert spoken numbers to written form: \"two hundred\" \u{2192} \"200\", \"five dollars\" \u{2192} \"$5\"")
+        }
       } header: {
         Text("Text Cleanup")
       } footer: {
@@ -44,8 +48,9 @@ struct TranscriptionTab: View {
 
       // MARK: Sound Feedback
       Section {
-        Toggle("Play sound on success", isOn: $settings.successSoundEnabled)
-          .help("Play an audio cue when transcription is delivered.")
+        Toggle(isOn: $settings.successSoundEnabled) {
+          InfoLabel(title: "Play sound on success", tooltip: "Play an audio cue when transcription is delivered.")
+        }
 
         if settings.successSoundEnabled {
           HStack {

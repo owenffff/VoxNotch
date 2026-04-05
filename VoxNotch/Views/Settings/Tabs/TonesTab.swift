@@ -194,6 +194,9 @@ struct TonesTab: View {
         HStack {
           Label("Custom Tones", systemImage: "slider.horizontal.3")
             .font(.body)
+          Image(systemName: "info.circle")
+            .font(.system(size: 11))
+            .foregroundStyle(.secondary)
             .help("Write your own AI prompt to control exactly how transcriptions are refined. Full Markdown supported.")
           if !customTones.isEmpty {
             Text("\(customTones.count)")
@@ -210,7 +213,7 @@ struct TonesTab: View {
       // MARK: Provider Selection -- only when a processing tone is active
       if settings.activeToneID != "none" {
         Section {
-          Picker("Provider", selection: $settings.llmProvider) {
+          Picker(selection: $settings.llmProvider) {
             if AnyLanguageModelProvider.isAppleIntelligenceSupported {
               if AnyLanguageModelProvider.isAppleIntelligenceAvailable {
                 Text("Apple Intelligence (On-device)").tag("apple")
@@ -219,8 +222,9 @@ struct TonesTab: View {
               }
             }
             Text("Ollama (Local)").tag("local")
+          } label: {
+            InfoLabel(title: "Provider", tooltip: "Which AI service processes your transcription. Apple Intelligence runs on-device. Ollama requires a local server.")
           }
-          .help("Which AI service processes your transcription. Apple Intelligence runs on-device. Ollama requires a local server.")
 
           if settings.llmProvider == "apple" {
             if AnyLanguageModelProvider.isAppleIntelligenceAvailable {
@@ -254,9 +258,14 @@ struct TonesTab: View {
           }
 
           if settings.llmProvider == "local" {
-            TextField("Model Name", text: $settings.llmModel)
-              .textFieldStyle(.roundedBorder)
-              .help("Ollama model name (e.g., llama3.2:3b)")
+            HStack {
+              TextField("Model Name", text: $settings.llmModel)
+                .textFieldStyle(.roundedBorder)
+              Image(systemName: "info.circle")
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .help("Ollama model name (e.g., llama3.2:3b)")
+            }
           }
 
           HStack {

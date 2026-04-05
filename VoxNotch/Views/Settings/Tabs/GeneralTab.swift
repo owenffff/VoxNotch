@@ -28,13 +28,14 @@ struct GeneralTab: View {
     Form {
       // MARK: Startup
       Section {
-        Toggle("Launch VoxNotch at login", isOn: Binding(
+        Toggle(isOn: Binding(
           get: { isLoginItemEnabled },
           set: { newValue in
             updateLoginItem(enabled: newValue)
           }
-        ))
-        .help("Automatically start VoxNotch when you log into your Mac.")
+        )) {
+          InfoLabel(title: "Launch VoxNotch at login", tooltip: "Automatically start VoxNotch when you log into your Mac.")
+        }
         .onChange(of: settings.launchAtLogin) { _, newValue in
           if newValue != isLoginItemEnabled {
             updateLoginItem(enabled: newValue)
@@ -54,8 +55,9 @@ struct GeneralTab: View {
 
       // MARK: Privacy
       Section {
-        Toggle("Hide from screen recording", isOn: $settings.hideFromScreenRecording)
-          .help("When enabled, VoxNotch windows won't appear in screen recordings, screenshots by other apps, or screen sharing.")
+        Toggle(isOn: $settings.hideFromScreenRecording) {
+          InfoLabel(title: "Hide from screen recording", tooltip: "When enabled, VoxNotch windows won't appear in screen recordings, screenshots by other apps, or screen sharing.")
+        }
       } header: {
         Text("Privacy")
       } footer: {
@@ -80,11 +82,12 @@ struct GeneralTab: View {
       // MARK: Storage
       Section {
         let totalBytes = modelManager.totalStorageUsedBytes() + mlxModelManager.totalStorageUsedBytes()
-        LabeledContent("Total Model Storage") {
+        LabeledContent {
           Text(formatBytes(totalBytes))
             .foregroundStyle(.secondary)
+        } label: {
+          InfoLabel(title: "Total Model Storage", tooltip: "Disk space used by downloaded speech models. Deleting models frees space but you'll need to re-download them.")
         }
-        .help("Disk space used by downloaded speech models. Deleting models frees space but you'll need to re-download them.")
 
         Button("Delete All Models", role: .destructive) {
           showDeleteAllConfirmation = true

@@ -53,23 +53,26 @@ struct RecordingTab: View {
 
       // MARK: Recording Behavior
       Section {
-        Toggle("Hold to record", isOn: $settings.holdToRecord)
-          .help("When enabled, recording stops when you release the hotkey. When disabled, press once to start and once to stop.")
+        Toggle(isOn: $settings.holdToRecord) {
+          InfoLabel(title: "Hold to record", tooltip: "When enabled, recording stops when you release the hotkey. When disabled, press once to start and once to stop.")
+        }
 
         if settings.holdToRecord {
-          LabeledContent("Minimum duration") {
+          LabeledContent {
             Slider(value: $settings.minimumRecordingDuration, in: 0.1...1.0, step: 0.1) {
               Text("Duration")
             }
             Text("\(settings.minimumRecordingDuration, specifier: "%.1f")s")
               .foregroundStyle(.secondary)
               .monospacedDigit()
+          } label: {
+            InfoLabel(title: "Minimum duration", tooltip: "Recordings shorter than this are discarded. Prevents accidental triggers.")
           }
-          .help("Recordings shorter than this are discarded. Prevents accidental triggers.")
         }
 
-        Toggle("Use Escape to cancel recording", isOn: $settings.useEscToCancel)
-          .help("Press Escape while recording to cancel without transcribing.")
+        Toggle(isOn: $settings.useEscToCancel) {
+          InfoLabel(title: "Use Escape to cancel recording", tooltip: "Press Escape while recording to cancel without transcribing.")
+        }
       } header: {
         Text("Recording Behavior")
       }
@@ -78,11 +81,12 @@ struct RecordingTab: View {
       DisclosureGroup("Advanced", isExpanded: $showAdvancedRecording) {
         VStack(alignment: .leading, spacing: 8) {
           // Auto-Stop
-          Toggle("Auto-stop on silence", isOn: $settings.enableAutoStopOnSilence)
-            .help("Automatically stop recording when no speech is detected for a set duration.")
+          Toggle(isOn: $settings.enableAutoStopOnSilence) {
+            InfoLabel(title: "Auto-stop on silence", tooltip: "Automatically stop recording when no speech is detected for a set duration.")
+          }
 
           if settings.enableAutoStopOnSilence {
-            LabeledContent("Silence threshold") {
+            LabeledContent {
               Slider(value: $settings.silenceThresholdDB, in: -60.0...(-30.0), step: 5.0) {
                 Text("Threshold")
               }
@@ -90,10 +94,11 @@ struct RecordingTab: View {
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
                 .frame(width: 50)
+            } label: {
+              InfoLabel(title: "Silence threshold", tooltip: "Audio level below which is considered silence. Lower values are more sensitive.")
             }
-            .help("Audio level below which is considered silence. Lower values are more sensitive.")
 
-            LabeledContent("Silence duration") {
+            LabeledContent {
               Slider(value: $settings.silenceDurationSeconds, in: 1.0...10.0, step: 0.5) {
                 Text("Duration")
               }
@@ -101,8 +106,9 @@ struct RecordingTab: View {
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
                 .frame(width: 40)
+            } label: {
+              InfoLabel(title: "Silence duration", tooltip: "How long silence must last before auto-stopping.")
             }
-            .help("How long silence must last before auto-stopping.")
 
             Text("Recording will show a visual warning before auto-stopping.")
               .font(.caption)

@@ -24,6 +24,26 @@ func formatSpeed(_ bytesPerSecond: Double) -> String {
   return formatter.string(fromByteCount: Int64(bytesPerSecond)) + "/s"
 }
 
+// MARK: - Info Label
+
+/// A label with a trailing ⓘ icon that carries a hover tooltip.
+/// Use in place of plain string labels on settings controls
+/// to make help text visually discoverable.
+struct InfoLabel: View {
+  let title: String
+  let tooltip: String
+
+  var body: some View {
+    HStack(spacing: 4) {
+      Text(title)
+      Image(systemName: "info.circle")
+        .font(.system(size: 11))
+        .foregroundStyle(.secondary)
+        .help(tooltip)
+    }
+  }
+}
+
 // MARK: - Custom Model Card
 
 struct CustomModelCard: View {
