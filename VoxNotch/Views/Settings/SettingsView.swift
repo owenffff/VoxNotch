@@ -681,7 +681,7 @@ struct DictationSpeechModelTab: View {
 
   var body: some View {
     ScrollView {
-      VStack(alignment: .leading, spacing: 20) {
+      VStack(alignment: .leading, spacing: 24) {
 
         // Privacy badge
         Label("On-device, private, no network required", systemImage: "checkmark.shield")
@@ -690,52 +690,40 @@ struct DictationSpeechModelTab: View {
           .padding(.horizontal, 4)
 
         // Built-in model cards
-        VStack(alignment: .leading, spacing: 6) {
-          Text("Built-in Models")
-            .font(.headline)
-            .padding(.horizontal, 4)
-
-          VStack(spacing: 10) {
-            ForEach(SpeechModel.allCases) { model in
-              ModelCard(
-                model: model,
-                isSelected: selectedBuiltinModel == model,
-                downloadState: downloadState(for: model),
-                onSelect: { selectModel(model) },
-                onDownload: { downloadModel(model) }
-              )
-            }
+        SettingsSection(
+          title: "Built-in Models",
+          footer: "Select and download a speech model for transcription."
+        ) {
+          ForEach(SpeechModel.allCases) { model in
+            ModelCard(
+              model: model,
+              isSelected: selectedBuiltinModel == model,
+              downloadState: downloadState(for: model),
+              onSelect: { selectModel(model) },
+              onDownload: { downloadModel(model) }
+            )
           }
-
-          Text("Select and download a speech model for transcription.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 4)
         }
 
         // Custom Models
-        VStack(alignment: .leading, spacing: 6) {
-          Text("Custom Models")
-            .font(.headline)
-            .padding(.horizontal, 4)
-
+        SettingsSection(
+          title: "Custom Models",
+          footer: "Add any MLX-format ASR model from Hugging Face Hub."
+        ) {
           if customRegistry.models.isEmpty {
             Text("No custom models added yet.")
               .foregroundStyle(.secondary)
               .font(.callout)
-              .padding(.horizontal, 4)
           } else {
-            VStack(spacing: 10) {
-              ForEach(customRegistry.models) { model in
-                CustomModelCard(
-                  model: model,
-                  isSelected: selectedCustomModel?.id == model.id,
-                  downloadState: customDownloadState(for: model),
-                  onSelect: { settings.speechModel = model.id },
-                  onDownload: { downloadCustomModel(model) },
-                  onDelete: { deleteCustomModel(model) }
-                )
-              }
+            ForEach(customRegistry.models) { model in
+              CustomModelCard(
+                model: model,
+                isSelected: selectedCustomModel?.id == model.id,
+                downloadState: customDownloadState(for: model),
+                onSelect: { settings.speechModel = model.id },
+                onDownload: { downloadCustomModel(model) },
+                onDelete: { deleteCustomModel(model) }
+              )
             }
           }
 
@@ -767,29 +755,18 @@ struct DictationSpeechModelTab: View {
               )
               .foregroundStyle(Color(nsColor: .separatorColor))
           )
-
-          Text("Add any MLX-format ASR model from Hugging Face Hub.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 4)
         }
 
         // Quick-Switch
-        VStack(alignment: .leading, spacing: 6) {
-          Text("Quick-Switch (\u{2190} \u{2192})")
-            .font(.headline)
-            .padding(.horizontal, 4)
-
+        SettingsSection(
+          title: "Quick-Switch (\u{2190} \u{2192})",
+          footer: "Hold your dictation hotkey + \u{2190} \u{2192} to cycle through these models."
+        ) {
           QuickSwitchOrderedList(
             pinnedIDs: $settings.pinnedModelIDs,
             availableItems: allModelOptions,
             maxItems: 3
           )
-
-          Text("Hold your dictation hotkey + \u{2190} \u{2192} to cycle through these models.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 4)
         }
       }
       .padding()
@@ -1236,6 +1213,41 @@ struct FeaturePill: View {
       Text(text)
         .font(.caption)
         .foregroundStyle(.secondary)
+    }
+  }
+}
+
+// MARK: - Settings Section Container
+
+/// Grouped-form-style section container for settings pages that use custom layouts
+/// instead of Form/Section. Provides visual consistency with `.formStyle(.grouped)`.
+struct SettingsSection<Content: View>: View {
+  let title: String
+  var footer: String? = nil
+  @ViewBuilder let content: () -> Content
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Text(title)
+        .font(.system(size: 11, weight: .medium))
+        .foregroundStyle(.secondary)
+        .textCase(.uppercase)
+        .padding(.horizontal, 4)
+
+      VStack(alignment: .leading, spacing: 10) {
+        content()
+      }
+      .padding(14)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(.quinary)
+      .clipShape(RoundedRectangle(cornerRadius: 10))
+
+      if let footer {
+        Text(footer)
+          .font(.caption)
+          .foregroundStyle(.tertiary)
+          .padding(.horizontal, 4)
+      }
     }
   }
 }

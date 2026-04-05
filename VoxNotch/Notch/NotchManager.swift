@@ -119,7 +119,7 @@ final class NotchManager {
   func showError(_ message: String) {
     cancelAutoHide()
     showExpanded()
-    scheduleAutoHide(after: 4.0)
+    scheduleAutoHide(after: 1.5)
   }
 
   func showModelSelector() {

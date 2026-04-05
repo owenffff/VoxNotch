@@ -32,7 +32,7 @@ struct NotchExpandedFallbackView: View {
 
   var body: some View {
     content
-      .frame(maxWidth: .infinity, minHeight: 14, alignment: .center)
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
       .padding(.horizontal, 14)
       .padding(.vertical, 2)
       .frame(width: 280)
