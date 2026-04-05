@@ -103,6 +103,56 @@ final class TranscriptionServiceTests: XCTestCase {
     XCTAssertEqual(service.currentProviderName, "CustomEngine")
   }
 
+  // MARK: - Error Messages
+
+  func testErrorMessagesAreShort() {
+    let errors: [TranscriptionError] = [
+      .providerNotReady, .fileNotFound, .invalidFormat,
+      .fileTooSmall, .fileCorrupted, .audioTooShort,
+      .noSpeechDetected, .modelNotLoaded, .timeout,
+      .transcriptionFailed("some underlying error"),
+    ]
+    for error in errors {
+      let desc = error.errorDescription ?? ""
+      XCTAssertLessThanOrEqual(
+        desc.count, 40,
+        "Error '\(error)' description too long for notch: \"\(desc)\" (\(desc.count) chars)"
+      )
+    }
+  }
+
+  func testAllErrorsHaveRecoverySuggestion() {
+    let errors: [TranscriptionError] = [
+      .providerNotReady, .fileNotFound, .invalidFormat,
+      .fileTooSmall, .fileCorrupted, .audioTooShort,
+      .noSpeechDetected, .modelNotLoaded, .timeout,
+      .transcriptionFailed("some error"),
+    ]
+    for error in errors {
+      XCTAssertNotNil(
+        error.recoverySuggestion,
+        "Error '\(error)' is missing a recoverySuggestion"
+      )
+    }
+  }
+
+  func testErrorMessagesAreUserFriendly() {
+    let errors: [TranscriptionError] = [
+      .providerNotReady, .invalidFormat, .fileCorrupted,
+      .transcriptionFailed("engine error"), .modelNotLoaded,
+    ]
+    let jargon = ["FluidAudio", "MLX", "16kHz", "mono", "Float32", "provider", "engine"]
+    for error in errors {
+      let desc = (error.errorDescription ?? "") + (error.recoverySuggestion ?? "")
+      for term in jargon {
+        XCTAssertFalse(
+          desc.contains(term),
+          "Error '\(error)' contains developer jargon '\(term)': \"\(desc)\""
+        )
+      }
+    }
+  }
+
   // MARK: - Helpers
 
   /// Create a minimal valid WAV file (44-byte header + 2000 bytes of silence)

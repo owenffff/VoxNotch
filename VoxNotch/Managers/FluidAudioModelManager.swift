@@ -467,13 +467,26 @@ enum FluidAudioError: LocalizedError {
   var errorDescription: String? {
     switch self {
     case .modelNotLoaded:
-      return "FluidAudio model not loaded"
-    case .modelDownloadFailed(let message):
-      return "Model download failed: \(message)"
-    case .transcriptionFailed(let message):
-      return "Transcription failed: \(message)"
+      return "Speech model not loaded"
+    case .modelDownloadFailed:
+      return "Model download failed"
+    case .transcriptionFailed:
+      return "Transcription failed"
     case .invalidAudioFormat:
-      return "Invalid audio format - expected 16kHz mono Float32"
+      return "Audio format not supported"
+    }
+  }
+
+  var recoverySuggestion: String? {
+    switch self {
+    case .modelNotLoaded:
+      return "Open Settings → Speech Model to download"
+    case .modelDownloadFailed:
+      return "Check your connection and try again"
+    case .transcriptionFailed:
+      return "Try again — or switch models in Settings"
+    case .invalidAudioFormat:
+      return "Try recording again"
     }
   }
 }

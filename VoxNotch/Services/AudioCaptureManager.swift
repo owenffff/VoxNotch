@@ -25,15 +25,30 @@ final class AudioCaptureManager {
         var errorDescription: String? {
             switch self {
             case .noInputAvailable:
-                return "No audio input device available"
-            case .engineStartFailed(let error):
-                return "Failed to start audio engine: \(error.localizedDescription)"
+                return "No microphone found"
+            case .engineStartFailed:
+                return "Microphone failed to start"
             case .permissionDenied:
-                return "Microphone permission was denied"
+                return "Microphone access denied"
             case .noAudioRecorded:
                 return "No audio was recorded"
-            case .fileWriteFailed(let error):
-                return "Failed to write audio file: \(error.localizedDescription)"
+            case .fileWriteFailed:
+                return "Could not save recording"
+            }
+        }
+
+        var recoverySuggestion: String? {
+            switch self {
+            case .noInputAvailable:
+                return "Connect a microphone and try again"
+            case .engineStartFailed:
+                return "Try again — restart the app if it persists"
+            case .permissionDenied:
+                return "Grant access in System Settings → Privacy"
+            case .noAudioRecorded:
+                return "Try speaking louder or longer"
+            case .fileWriteFailed:
+                return "Try again — check disk space if it persists"
             }
         }
     }

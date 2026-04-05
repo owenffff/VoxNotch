@@ -23,13 +23,24 @@ final class TextOutputManager {
         var errorDescription: String? {
             switch self {
             case .accessibilityNotGranted:
-                return "Accessibility permission required for text output"
+                return "Accessibility access needed"
             case .noActiveApplication:
-                return "No active application to receive text"
+                return "No app to receive text"
             case .keystrokeFailed:
-                return "Failed to simulate keystrokes"
+                return "Could not type text"
             case .clipboardFailed:
-                return "Failed to paste from clipboard"
+                return "Could not paste text"
+            }
+        }
+
+        var recoverySuggestion: String? {
+            switch self {
+            case .accessibilityNotGranted:
+                return "Grant access in System Settings → Privacy"
+            case .noActiveApplication:
+                return "Click into an app first, then try again"
+            case .keystrokeFailed, .clipboardFailed:
+                return "Text was copied to clipboard instead"
             }
         }
     }

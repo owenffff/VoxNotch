@@ -245,13 +245,6 @@ final class QuickDictationController {
     private func startRecording() {
         print("QuickDictationController: startRecording called, state: \(state)")
 
-        // Clear any stale transient flags from previous interactions
-        appState.clearError()
-        appState.modelsNeeded = false
-        appState.isShowingSuccess = false
-        appState.isShowingClipboard = false
-        appState.isShowingConfirmation = false
-
         // If we are already recording, ignore
         if case .recording = state {
             return
@@ -263,6 +256,20 @@ final class QuickDictationController {
             print("QuickDictationController: Ignoring startRecording during cooldown")
             return
         }
+
+        // If we have a failed transcription with saved audio, retry instead of recording again
+        if appState.canRetryTranscription {
+            retryTranscription()
+            return
+        }
+
+        // Clear any stale transient flags from previous interactions
+        appState.clearError()
+        appState.lastAudioURL = nil
+        appState.modelsNeeded = false
+        appState.isShowingSuccess = false
+        appState.isShowingClipboard = false
+        appState.isShowingConfirmation = false
 
         // If we are transcribing, outputting, or in error, cancel the current session to start a new one
         if case .warmingUp = state {
@@ -380,7 +387,12 @@ final class QuickDictationController {
 
         // Transcribe using batch ASR
         Task {
-            defer { audioManager.cleanupFile(at: captureResult.fileURL) }
+            var shouldCleanupAudio = true
+            defer {
+                if shouldCleanupAudio {
+                    audioManager.cleanupFile(at: captureResult.fileURL)
+                }
+            }
 
             do {
                 // Check if model is ready, if not show warming up state
@@ -534,6 +546,54 @@ final class QuickDictationController {
                     return
                 }
                 print("QuickDictationController: Transcription failed: \(error)")
+                shouldCleanupAudio = false  // Preserve audio file for retry
+                await MainActor.run {
+                    self.appState.lastAudioURL = captureResult.fileURL
+                    updateState(.error(error))
+                }
+            }
+        }
+    }
+
+    /// Retry transcription using the last recorded audio file
+    func retryTranscription() {
+        guard let audioURL = appState.lastAudioURL else { return }
+        guard FileManager.default.fileExists(atPath: audioURL.path) else {
+            appState.lastAudioURL = nil
+            return
+        }
+
+        let capturedSessionID = currentSessionID
+        appState.lastError = nil
+        appState.lastErrorRecovery = nil
+
+        Task {
+            do {
+                await MainActor.run { updateState(.warmingUp) }
+                try await TranscriptionService.shared.ensureModelReady()
+
+                guard capturedSessionID == self.currentSessionID else { return }
+
+                await MainActor.run { updateState(.transcribing) }
+                let result = try await TranscriptionService.shared.transcribe(audioURL: audioURL)
+
+                guard capturedSessionID == self.currentSessionID else { return }
+
+                let text = result.text
+                guard !text.isEmpty else {
+                    await MainActor.run { updateState(.error(TranscriptionError.noSpeechDetected)) }
+                    return
+                }
+
+                // Skip LLM processing on retry — output directly
+                await MainActor.run {
+                    self.appState.lastAudioURL = nil
+                }
+                audioManager.cleanupFile(at: audioURL)
+                await outputText(text)
+
+            } catch {
+                guard capturedSessionID == self.currentSessionID else { return }
                 await MainActor.run {
                     updateState(.error(error))
                 }
@@ -563,6 +623,7 @@ final class QuickDictationController {
                 textOutputManager.copyToClipboardOnly(text)
                 print("QuickDictationController: Text output succeeded (also on clipboard)")
                 await MainActor.run {
+                    self.appState.lastAudioURL = nil
                     NotchManager.shared.showSuccess()
                     SoundManager.shared.playSuccessSound()
                     updateState(.idle)
@@ -578,6 +639,7 @@ final class QuickDictationController {
             print("QuickDictationController: No focused text input, copying to clipboard")
             textOutputManager.copyToClipboardOnly(text)
             await MainActor.run {
+                self.appState.lastAudioURL = nil
                 NotchManager.shared.showClipboard()
                 SoundManager.shared.playSuccessSound()
                 updateState(.idle)
@@ -877,6 +939,7 @@ final class QuickDictationController {
                 appState.isTranscribing = false
                 appState.isProcessingLLM = false
                 appState.lastError = error.localizedDescription
+                appState.lastErrorRecovery = (error as? LocalizedError)?.recoverySuggestion
                 appState.silenceWarningActive = false
                 appState.isModelSelecting = false
                 appState.isToneSelecting = false

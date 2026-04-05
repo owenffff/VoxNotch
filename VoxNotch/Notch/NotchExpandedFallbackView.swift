@@ -67,7 +67,7 @@ struct NotchExpandedFallbackView: View {
         icon: "xmark.circle.fill",
         color: .red,
         title: shortenError(error),
-        compact: true
+        subtitle: appState.canRetryTranscription ? "Press hotkey to retry" : appState.lastErrorRecovery
       )
     } else if appState.isShowingSuccess {
       transientRow(
@@ -218,17 +218,27 @@ struct NotchExpandedFallbackView: View {
 
   // MARK: - Transient Row
 
-  private func transientRow(icon: String, color: Color, title: String, compact: Bool = false) -> some View {
+  private func transientRow(icon: String, color: Color, title: String, subtitle: String? = nil, compact: Bool = false) -> some View {
     HStack(spacing: 8) {
       Image(systemName: icon)
         .font(.system(size: compact ? 10 : 12))
         .foregroundStyle(color)
 
-      Text(title)
-        .font(.system(size: compact ? 10 : 12, weight: .medium))
-        .foregroundStyle(.primary)
-        .lineLimit(1)
-        .truncationMode(.tail)
+      VStack(alignment: .leading, spacing: 1) {
+        Text(title)
+          .font(.system(size: compact ? 10 : 12, weight: .medium))
+          .foregroundStyle(.primary)
+          .lineLimit(1)
+          .truncationMode(.tail)
+
+        if let subtitle {
+          Text(subtitle)
+            .font(.system(size: 9, weight: .regular))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .truncationMode(.tail)
+        }
+      }
     }
   }
 

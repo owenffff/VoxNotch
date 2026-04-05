@@ -39,6 +39,15 @@ final class AppState {
 
   var currentTranscription: String = ""
   var lastError: String?
+  var lastErrorRecovery: String?
+
+  /// URL of the last recorded audio file (for retry)
+  var lastAudioURL: URL?
+
+  /// Whether transcription retry is available
+  var canRetryTranscription: Bool {
+    lastError != nil && lastAudioURL != nil
+  }
 
   // MARK: - LLM Status
 
@@ -155,6 +164,7 @@ final class AppState {
 
   func clearError() {
     lastError = nil
+    lastErrorRecovery = nil
   }
 
   /// Set LLM warning (non-blocking, transcription still succeeded)
@@ -181,6 +191,8 @@ final class AppState {
     modelsNeededMessage = ""
     currentTranscription = ""
     lastError = nil
+    lastErrorRecovery = nil
+    lastAudioURL = nil
     llmWarning = nil
     llmFailedWithRetry = false
     lastOutputWasClipboard = false

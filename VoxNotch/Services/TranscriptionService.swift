@@ -79,48 +79,38 @@ enum TranscriptionError: LocalizedError {
         case .providerNotReady:
             return "Speech model not ready"
         case .fileNotFound:
-            return "Audio file not found"
+            return "Recording not found"
         case .invalidFormat:
-            return "Invalid audio format"
+            return "Recording format not supported"
         case .fileTooSmall:
-            return "Recording too small"
+            return "Recording too short"
         case .fileCorrupted:
-            return "Audio file corrupted"
+            return "Recording is corrupted"
         case .audioTooShort:
             return "Recording too short"
         case .noSpeechDetected:
             return "No speech detected"
-        case .transcriptionFailed(let message):
-            // Shorten long error messages for UI display
-            if message.contains("unallocated locales") {
-                return "Speech engine error (beta)"
-            }
-            return message.count > 30 ? "Transcription failed" : message
+        case .transcriptionFailed:
+            return "Transcription failed"
         case .modelNotLoaded:
-            return "Speech model not downloaded. Open Settings to download."
+            return "Speech model not downloaded"
         case .timeout:
-            return "Download timed out"
+            return "Timed out"
         }
     }
 
-    /// User-friendly recovery suggestion
     var recoverySuggestion: String? {
         switch self {
         case .audioTooShort, .noSpeechDetected:
-            return "Try speaking louder or longer"
+            return "Try speaking longer or louder"
         case .modelNotLoaded, .providerNotReady:
-            return "Open Settings to download the required model"
-        case .fileCorrupted, .invalidFormat, .fileTooSmall:
-            return "Please try recording again"
+            return "Open Settings → Speech Model to download"
+        case .fileCorrupted, .invalidFormat, .fileTooSmall, .fileNotFound:
+            return "Try recording again"
         case .timeout:
-            return "Check your network connection"
-        case .transcriptionFailed(let message):
-            if message.contains("unallocated locales") {
-                return "Try again - known beta issue"
-            }
-            return "Please try again"
-        default:
-            return nil
+            return "Check your connection and try again"
+        case .transcriptionFailed:
+            return "Try again — or switch models in Settings"
         }
     }
 }
