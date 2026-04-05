@@ -13,7 +13,6 @@ struct RecordingTab: View {
 
   @Bindable private var settings = SettingsManager.shared
   @State private var hotkeyError: String?
-  @State private var showAdvancedRecording = false
 
   // Microphone test state
   @State private var isTesting = false
@@ -78,122 +77,120 @@ struct RecordingTab: View {
       }
 
       // MARK: Advanced
-      DisclosureGroup("Advanced", isExpanded: $showAdvancedRecording) {
-        VStack(alignment: .leading, spacing: 8) {
-          // Auto-Stop
-          Toggle(isOn: $settings.enableAutoStopOnSilence) {
-            InfoLabel(title: "Auto-stop on silence", tooltip: "Automatically stop recording when no speech is detected for a set duration.")
+      Section {
+        Toggle(isOn: $settings.enableAutoStopOnSilence) {
+          InfoLabel(title: "Auto-stop on silence", tooltip: "Automatically stop recording when no speech is detected for a set duration.")
+        }
+
+        if settings.enableAutoStopOnSilence {
+          LabeledContent {
+            Slider(value: $settings.silenceThresholdDB, in: -60.0...(-30.0), step: 5.0) {
+              Text("Threshold")
+            }
+            Text("\(Int(settings.silenceThresholdDB)) dB")
+              .foregroundStyle(.secondary)
+              .monospacedDigit()
+              .frame(width: 50)
+          } label: {
+            InfoLabel(title: "Silence threshold", tooltip: "Audio level below which is considered silence. Lower values are more sensitive.")
           }
 
-          if settings.enableAutoStopOnSilence {
-            LabeledContent {
-              Slider(value: $settings.silenceThresholdDB, in: -60.0...(-30.0), step: 5.0) {
-                Text("Threshold")
-              }
-              Text("\(Int(settings.silenceThresholdDB)) dB")
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-                .frame(width: 50)
-            } label: {
-              InfoLabel(title: "Silence threshold", tooltip: "Audio level below which is considered silence. Lower values are more sensitive.")
+          LabeledContent {
+            Slider(value: $settings.silenceDurationSeconds, in: 1.0...10.0, step: 0.5) {
+              Text("Duration")
             }
+            Text("\(settings.silenceDurationSeconds, specifier: "%.1f")s")
+              .foregroundStyle(.secondary)
+              .monospacedDigit()
+              .frame(width: 40)
+          } label: {
+            InfoLabel(title: "Silence duration", tooltip: "How long silence must last before auto-stopping.")
+          }
+        }
+      } header: {
+        Text("Advanced")
+      } footer: {
+        if settings.enableAutoStopOnSilence {
+          Text("Recording will show a visual warning before auto-stopping.")
+        }
+      }
 
-            LabeledContent {
-              Slider(value: $settings.silenceDurationSeconds, in: 1.0...10.0, step: 0.5) {
-                Text("Duration")
-              }
-              Text("\(settings.silenceDurationSeconds, specifier: "%.1f")s")
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-                .frame(width: 40)
-            } label: {
-              InfoLabel(title: "Silence duration", tooltip: "How long silence must last before auto-stopping.")
+      // MARK: Microphone
+      Section {
+        Picker("Device", selection: Binding(
+          get: { settings.selectedMicrophoneDeviceID },
+          set: { newValue in
+            settings.selectedMicrophoneDeviceID = newValue
+            AudioCaptureManager.shared.selectInputDevice(newValue == 0 ? nil : newValue)
+          }
+        )) {
+          Text("System Default").tag(UInt32(0))
+          Divider()
+          ForEach(availableMicrophones, id: \.id) { mic in
+            Text(mic.name).tag(mic.id)
+          }
+        }
+
+        HStack {
+          Button(isTesting ? "Stop Test" : "Start Test") {
+            if isTesting {
+              stopTest()
+            } else {
+              startTest()
             }
+          }
+          .buttonStyle(.borderedProminent)
+          .tint(isTesting ? .red : .accentColor)
 
-            Text("Recording will show a visual warning before auto-stopping.")
+          if isTesting {
+            HStack(spacing: 4) {
+              Circle()
+                .fill(Color.red)
+                .frame(width: 8, height: 8)
+                .opacity(0.8)
+              Text("Recording...")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+          }
+
+          Spacer()
+
+          if testAudioURL != nil && !isTesting {
+            Button(isPlaying ? "Stop Playback" : "Play Audio") {
+              if isPlaying {
+                stopPlayback()
+              } else {
+                startPlayback()
+              }
+            }
+            .buttonStyle(.bordered)
+          }
+        }
+
+        if let error = testError {
+          Text(error)
+            .font(.caption)
+            .foregroundStyle(.red)
+        }
+
+        if let transcription = testTranscription {
+          VStack(alignment: .leading, spacing: 4) {
+            Text("Dictation Result:")
               .font(.caption)
               .foregroundStyle(.secondary)
+            Text(transcription.isEmpty ? "(No speech detected)" : transcription)
+              .font(.body)
+              .padding(8)
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .background(Color.secondary.opacity(0.1))
+              .clipShape(RoundedRectangle(cornerRadius: 6))
           }
         }
-
-        Divider()
-
-        VStack(alignment: .leading, spacing: 8) {
-          // Microphone
-          Picker("Device", selection: Binding(
-            get: { settings.selectedMicrophoneDeviceID },
-            set: { newValue in
-              settings.selectedMicrophoneDeviceID = newValue
-              AudioCaptureManager.shared.selectInputDevice(newValue == 0 ? nil : newValue)
-            }
-          )) {
-            Text("System Default").tag(UInt32(0))
-            Divider()
-            ForEach(availableMicrophones, id: \.id) { mic in
-              Text(mic.name).tag(mic.id)
-            }
-          }
-
-          VStack(alignment: .leading, spacing: 12) {
-            HStack {
-              Button(isTesting ? "Stop Test" : "Start Test") {
-                if isTesting {
-                  stopTest()
-                } else {
-                  startTest()
-                }
-              }
-              .buttonStyle(.borderedProminent)
-              .tint(isTesting ? .red : .accentColor)
-
-              if isTesting {
-                HStack(spacing: 4) {
-                  Circle()
-                    .fill(Color.red)
-                    .frame(width: 8, height: 8)
-                    .opacity(0.8)
-                  Text("Recording...")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
-              }
-
-              Spacer()
-
-              if testAudioURL != nil && !isTesting {
-                Button(isPlaying ? "Stop Playback" : "Play Audio") {
-                  if isPlaying {
-                    stopPlayback()
-                  } else {
-                    startPlayback()
-                  }
-                }
-                .buttonStyle(.bordered)
-              }
-            }
-
-            if let error = testError {
-              Text(error)
-                .font(.caption)
-                .foregroundStyle(.red)
-            }
-
-            if let transcription = testTranscription {
-              VStack(alignment: .leading, spacing: 4) {
-                Text("Dictation Result:")
-                  .font(.caption)
-                  .foregroundStyle(.secondary)
-                Text(transcription.isEmpty ? "(No speech detected)" : transcription)
-                  .font(.body)
-                  .padding(8)
-                  .frame(maxWidth: .infinity, alignment: .leading)
-                  .background(Color.secondary.opacity(0.1))
-                  .clipShape(RoundedRectangle(cornerRadius: 6))
-              }
-            }
-          }
-          .padding(.top, 4)
-        }
+      } header: {
+        Text("Microphone")
+      } footer: {
+        Text("Test your microphone to verify recording and transcription work correctly.")
       }
     }
     .formStyle(.grouped)
