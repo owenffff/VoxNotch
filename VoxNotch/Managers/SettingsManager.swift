@@ -99,6 +99,9 @@ final class SettingsManager {
     static let historyEnabled = "historyEnabled"
     static let historyRetentionDays = "historyRetentionDays"
     static let saveAudioRecordings = "saveAudioRecordings"
+
+    /// Onboarding
+    static let hasCompletedOnboarding = "hasCompletedOnboarding"
   }
 
   /// Current settings version for migrations
@@ -380,6 +383,14 @@ final class SettingsManager {
   /// Whether to save audio recordings alongside transcriptions
   var saveAudioRecordings: Bool {
     didSet { save(saveAudioRecordings, forKey: Keys.saveAudioRecordings) }
+  }
+
+  // MARK: - Onboarding Settings
+
+  /// Whether the first-run wizard has been completed
+  var hasCompletedOnboarding: Bool {
+    get { UserDefaults.standard.bool(forKey: Keys.hasCompletedOnboarding) }
+    set { UserDefaults.standard.set(newValue, forKey: Keys.hasCompletedOnboarding) }
   }
 
   // MARK: - Initialization
