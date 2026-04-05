@@ -182,46 +182,6 @@ final class LLMService {
     lastOriginalText = nil
   }
 
-  /// Generate a summary of the given text
-  /// - Parameter text: The transcript or text to summarize
-  /// - Returns: AI-generated summary
-  func summarize(text: String) async throws -> String {
-    let provider = try createProvider()
-
-    let summaryPrompt = """
-      Summarize the following transcript. Include:
-      - Key points discussed
-      - Any decisions made
-      - Action items or next steps
-      - Important quotes or statements
-
-      Format the summary with clear sections using markdown headers (## Section Name).
-
-      Transcript:
-      \(text)
-      """
-
-    return try await withTimeout(seconds: 60) {
-      try await provider.process(text: text, prompt: summaryPrompt)
-    }
-  }
-
-  /// Process text with explicit error handling
-  /// - Parameter text: The transcribed text to process
-  /// - Returns: The processed text
-  /// - Throws: LLMError if processing fails
-  func processWithError(text: String) async throws -> String {
-    guard settings.enablePostProcessing else {
-      return text
-    }
-
-    let provider = try createProvider()
-
-    return try await withTimeout(seconds: defaultTimeout) {
-      try await provider.process(text: text, prompt: self.settings.effectivePrompt)
-    }
-  }
-
   // MARK: - Private Methods
 
   private func handleError(_ error: LLMError, originalText: String) -> LLMProcessingResult {

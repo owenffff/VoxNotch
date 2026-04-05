@@ -486,7 +486,7 @@ final class SettingsManager {
       self.activeToneID = "none"
     }
     self.pinnedToneIDs = (defaults.stringArray(forKey: Keys.pinnedToneIDs)
-      ?? ["formal", "casual"]).filter { $0 != "none" }
+      ?? ["formal", "fixGrammar"]).filter { $0 != "none" }
 
     /// FluidAudio Settings
     self.fluidAudioModel = defaults.string(forKey: Keys.fluidAudioModel) ?? "v2"
@@ -592,7 +592,7 @@ final class SettingsManager {
     speechModel = SpeechModel.defaultModel.rawValue
     pinnedModelIDs = Array(SpeechModel.allCases.prefix(3)).map(\.rawValue)
     activeToneID = "none"
-    pinnedToneIDs = ["formal", "casual"]
+    pinnedToneIDs = ["formal", "fixGrammar"]
     fluidAudioModel = "v2"
     historyEnabled = true
     historyRetentionDays = 0

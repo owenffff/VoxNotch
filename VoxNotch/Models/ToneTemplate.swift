@@ -160,8 +160,8 @@ final class ToneRegistry: @unchecked Sendable {
         )
         save()
       }
-      // Remove deprecated built-in tones (cleanup, punctuation, filler-removal)
-      let removedBuiltInIDs: Set<String> = ["cleanup", "punctuation", "filler-removal"]
+      // Remove deprecated built-in tones
+      let removedBuiltInIDs: Set<String> = ["cleanup", "punctuation", "filler-removal", "casual", "translation"]
       let hadRemoved = tones.contains { removedBuiltInIDs.contains($0.id) && $0.isBuiltIn }
       if hadRemoved {
         tones.removeAll { removedBuiltInIDs.contains($0.id) && $0.isBuiltIn }
@@ -173,6 +173,57 @@ final class ToneRegistry: @unchecked Sendable {
         SettingsManager.shared.pinnedToneIDs.removeAll { removedBuiltInIDs.contains($0) }
         save()
       }
+      // Seed any new built-in tones that don't exist yet (for existing users)
+      let existingIDs = Set(tones.map(\.id))
+      let newBuiltIns = PromptTemplate.allCases
+        .filter { $0 != .custom && !existingIDs.contains($0.rawValue) }
+        .map { template in
+          ToneTemplate(
+            id: template.rawValue,
+            displayName: template.displayName,
+            description: template.toneDescription,
+            prompt: template.prompt,
+            isBuiltIn: true,
+            originalPrompt: template.prompt
+          )
+        }
+      if !newBuiltIns.isEmpty {
+        tones.append(contentsOf: newBuiltIns)
+        save()
+      }
+      // Refresh built-in prompts when the upstream template has changed and
+      // the user hasn't customized the prompt (prompt still matches old originalPrompt).
+      var refreshed = false
+      for i in tones.indices where tones[i].isBuiltIn && tones[i].id != "none" {
+        guard let template = PromptTemplate(rawValue: tones[i].id) else { continue }
+        let currentPrompt = template.prompt
+        // Skip if already up-to-date
+        guard tones[i].originalPrompt != currentPrompt else { continue }
+        // Only overwrite if user hasn't customized (prompt == old originalPrompt)
+        if tones[i].prompt == tones[i].originalPrompt {
+          tones[i] = ToneTemplate(
+            id: tones[i].id,
+            displayName: tones[i].displayName,
+            description: template.toneDescription,
+            prompt: currentPrompt,
+            isBuiltIn: true,
+            originalPrompt: currentPrompt
+          )
+          refreshed = true
+        } else {
+          // User customized the prompt — only update originalPrompt so "Revert" targets the new default
+          tones[i] = ToneTemplate(
+            id: tones[i].id,
+            displayName: tones[i].displayName,
+            description: tones[i].description,
+            prompt: tones[i].prompt,
+            isBuiltIn: true,
+            originalPrompt: currentPrompt
+          )
+          refreshed = true
+        }
+      }
+      if refreshed { save() }
     } else {
       seedBuiltIns()
       migrateCustomTone()

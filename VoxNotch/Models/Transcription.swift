@@ -128,18 +128,6 @@ extension TranscriptionRecord {
     order(Columns.timestamp.desc)
   }
 
-  /// Fetch transcriptions within a date range
-  static func between(start: Date, end: Date) -> QueryInterfaceRequest<TranscriptionRecord> {
-    filter(Columns.timestamp >= start && Columns.timestamp <= end)
-      .order(Columns.timestamp.desc)
-  }
-
-  /// Fetch transcriptions using a specific model
-  static func withModel(_ modelName: String) -> QueryInterfaceRequest<TranscriptionRecord> {
-    filter(Columns.model == modelName)
-      .order(Columns.timestamp.desc)
-  }
-
   /// Search transcriptions using full-text search
   ///
   /// Uses FTS5 content table to find matching transcriptions.
@@ -174,37 +162,6 @@ extension TranscriptionRecord {
     return try TranscriptionRecord.fetchAll(db, sql: sql, arguments: [sanitizedQuery])
   }
 
-  /// Search transcriptions with optional ordering by timestamp
-  ///
-  /// - Parameters:
-  ///   - query: Search query string
-  ///   - orderByRank: If true, order by FTS5 rank; if false, order by timestamp
-  ///   - db: Database connection
-  /// - Returns: Matching transcriptions
-  static func search(
-    query: String,
-    orderByRank: Bool = true,
-    in db: Database
-  ) throws -> [TranscriptionRecord] {
-    guard !query.trimmingCharacters(in: .whitespaces).isEmpty else {
-      return []
-    }
-
-    let orderClause: String = orderByRank ? "bm25(transcription_fts) ASC" : "transcription.timestamp DESC"
-
-    let sql: String = "SELECT transcription.* FROM transcription JOIN transcription_fts ON transcription.id = transcription_fts.rowid WHERE transcription_fts MATCH ? ORDER BY " + orderClause
-
-    let sanitizedQuery: String = query
-      .components(separatedBy: .whitespaces)
-      .filter { !$0.isEmpty }
-      .map { (token: String) -> String in
-        let escaped = token.replacingOccurrences(of: "\"", with: "\"\"")
-        return "\"" + escaped + "\"*"
-      }
-      .joined(separator: " AND ")
-
-    return try TranscriptionRecord.fetchAll(db, sql: sql, arguments: [sanitizedQuery])
-  }
 }
 
 // MARK: - Type Alias

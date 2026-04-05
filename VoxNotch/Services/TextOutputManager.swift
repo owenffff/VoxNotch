@@ -250,26 +250,4 @@ final class TextOutputManager {
         pasteboard.setString(text, forType: .string)
     }
 
-    /// Type a specific key with optional modifiers
-    /// - Parameters:
-    ///   - keyCode: The virtual key code
-    ///   - modifiers: Optional modifier flags
-    func typeKey(_ keyCode: CGKeyCode, modifiers: CGEventFlags = []) async throws {
-        guard let eventSource = CGEventSource(stateID: .hidSystemState) else {
-            throw TextOutputError.keystrokeFailed
-        }
-
-        guard let keyDown = CGEvent(keyboardEventSource: eventSource, virtualKey: keyCode, keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: eventSource, virtualKey: keyCode, keyDown: false) else {
-            throw TextOutputError.keystrokeFailed
-        }
-
-        if !modifiers.isEmpty {
-            keyDown.flags = modifiers
-            keyUp.flags = modifiers
-        }
-
-        keyDown.post(tap: .cgAnnotatedSessionEventTap)
-        keyUp.post(tap: .cgAnnotatedSessionEventTap)
-    }
 }

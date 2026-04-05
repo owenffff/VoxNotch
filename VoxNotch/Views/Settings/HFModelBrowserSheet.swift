@@ -16,7 +16,7 @@ struct HFModelBrowserSheet: View {
   @State private var searchText: String = ""
   @State private var selectedFamily: HFModelFamily = .all
   @State private var models: [HFModelInfo] = []
-  @State private var isLoading: Bool = false
+  @State private var isLoading: Bool = true
   @State private var isOffline: Bool = false
   @State private var addedModelID: String?   // repo ID just added (for feedback)
   @State private var downloadError: String?  // error message from failed download
@@ -108,6 +108,9 @@ struct HFModelBrowserSheet: View {
             Text(emptyMessage)
               .foregroundStyle(.secondary)
               .multilineTextAlignment(.center)
+            Button("Retry") { Task { await loadModels() } }
+              .buttonStyle(.bordered)
+              .controlSize(.small)
             Spacer()
           }
           .padding()

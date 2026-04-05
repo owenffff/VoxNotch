@@ -131,25 +131,6 @@ final class UpdateManager {
 
   // MARK: - Public Methods
 
-  /// Check for updates manually
-  func checkForUpdates() {
-    guard !isChecking else {
-      return
-    }
-
-    isChecking = true
-    lastError = nil
-
-    #if canImport(Sparkle)
-    updater?.checkForUpdates()
-    #else
-    /// Fallback: Manual check without Sparkle
-    Task {
-      await checkForUpdatesManually()
-    }
-    #endif
-  }
-
   /// Check for updates in background (non-interactive)
   func checkForUpdatesInBackground() {
     #if canImport(Sparkle)
@@ -157,20 +138,6 @@ final class UpdateManager {
     #else
     Task {
       await checkForUpdatesManually()
-    }
-    #endif
-  }
-
-  /// Download and install available update
-  func downloadAndInstallUpdate() {
-    #if canImport(Sparkle)
-    /// Sparkle handles this automatically when user accepts
-    updater?.checkForUpdates()
-    #else
-    /// Open download page in browser as fallback
-    // TODO(release): set real update URL before distribution
-    if let downloadURL = URL(string: "") {
-      NSWorkspace.shared.open(downloadURL)
     }
     #endif
   }

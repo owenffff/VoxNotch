@@ -38,24 +38,90 @@ final class AnyLanguageModelProvider: LLMProvider, @unchecked Sendable {
 
     do {
       let userMessage = """
-      Please edit the following transcription according to the system instructions.
-      
       <transcription>
       \(text)
       </transcription>
+
+      Edit the above transcription per your instructions. Output ONLY the edited text — nothing else.
       """
       let response = try await session.respond(to: userMessage)
-      // Strip any leading "Cleaned text:" echo that some models produce
-      var content = response.content.trimmingCharacters(in: .whitespacesAndNewlines)
-      if content.lowercased().hasPrefix("cleaned text:") {
-        content = String(content.dropFirst("Cleaned text:".count))
-          .trimmingCharacters(in: .whitespacesAndNewlines)
-      }
+      let content = sanitizeResponse(response.content)
       return content
     } catch {
       logger.error("AnyLanguageModel error: \(error.localizedDescription)")
       throw LLMError.apiError(error.localizedDescription)
     }
+  }
+
+  // MARK: - Response Sanitization
+
+  /// Strip conversational preamble and trailing meta-commentary that LLMs sometimes add
+  /// despite being told to output only the edited text.
+  private func sanitizeResponse(_ raw: String) -> String {
+    var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+
+    // Strip "Cleaned text:" echo some models produce
+    if text.lowercased().hasPrefix("cleaned text:") {
+      text = String(text.dropFirst("Cleaned text:".count))
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // Strip conversational preamble — only if remainder is non-empty.
+    // Each prefix pattern is matched case-insensitively at the start of the response.
+    // We strip up to and including the first newline after the preamble sentence.
+    let preamblePrefixes = [
+      "sure,", "sure!", "sure.", "sure —", "sure–", "sure-",
+      "of course,", "of course!", "of course.",
+      "certainly,", "certainly!", "certainly.",
+      "absolutely,", "absolutely!", "absolutely.",
+      "here's the", "here is the", "here's your", "here is your",
+      "i've rephrased", "i've rewritten", "i've edited", "i've converted",
+      "i'll help", "i'd be happy to", "i would be happy to",
+    ]
+
+    let lowered = text.lowercased()
+    for prefix in preamblePrefixes {
+      if lowered.hasPrefix(prefix) {
+        // Find the end of this preamble sentence (first newline or ". " / ":\n")
+        if let newlineRange = text.range(of: "\n") {
+          let remainder = String(text[newlineRange.upperBound...])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+          if !remainder.isEmpty {
+            text = remainder
+          }
+        } else if let periodSpace = text.range(of: ". ", range: text.index(text.startIndex, offsetBy: prefix.count)..<text.endIndex) {
+          // Preamble like "Sure, here is the formal version. The quarterly..."
+          let remainder = String(text[periodSpace.upperBound...])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+          if !remainder.isEmpty {
+            text = remainder
+          }
+        }
+        break
+      }
+    }
+
+    // Strip trailing meta-commentary (e.g., "Let me know if you'd like...")
+    let trailingSuffixes = [
+      "\nlet me know if",
+      "\nfeel free to",
+      "\nplease let me know",
+      "\nhope this helps",
+      "\nis there anything",
+    ]
+    let loweredText = text.lowercased()
+    for suffix in trailingSuffixes {
+      if let range = loweredText.range(of: suffix) {
+        let trimmed = String(text[text.startIndex..<range.lowerBound])
+          .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+          text = trimmed
+        }
+        break
+      }
+    }
+
+    return text
   }
 
   // MARK: - Structured Generation

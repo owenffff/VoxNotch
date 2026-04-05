@@ -28,10 +28,4 @@ final class AudioVisualizationState {
 
   private init() {}
 
-  // MARK: - Methods
-
-  func reset() {
-    audioLevel = 0.0
-    audioFrequencyBands = [Float](repeating: 0, count: 6)
-  }
 }

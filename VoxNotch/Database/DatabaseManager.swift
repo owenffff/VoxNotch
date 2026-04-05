@@ -202,31 +202,4 @@ final class DatabaseManager: @unchecked Sendable {
     return try await pool.write(block)
   }
 
-  // MARK: - Schema Verification
-
-  /// Verify the database schema is correct (for testing)
-  func verifySchema() async throws -> Bool {
-    guard let pool = queue.sync(execute: { dbPool }) else {
-      throw DatabaseError.notInitialized
-    }
-
-    return try await pool.read { db in
-      /// Check transcription table exists
-      let hasTranscription = try db.tableExists("transcription")
-
-      /// Check FTS table exists
-      let hasFTS = try db.tableExists("transcription_fts")
-
-      /// Check all expected columns exist
-      let columns = try db.columns(in: "transcription")
-      let columnNames = Set(columns.map { $0.name })
-      let expectedColumns: Set<String> = [
-        "id", "rawText", "processedText", "model",
-        "duration", "confidence", "timestamp", "audioPath", "metadata"
-      ]
-      let hasAllColumns = expectedColumns.isSubset(of: columnNames)
-
-      return hasTranscription && hasFTS && hasAllColumns
-    }
-  }
 }

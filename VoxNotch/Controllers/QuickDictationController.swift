@@ -371,7 +371,7 @@ final class QuickDictationController {
 
     private func getPinnedTones() -> [ToneTemplate] {
         let ids = SettingsManager.shared.pinnedToneIDs.isEmpty
-            ? ["formal", "casual"]
+            ? ["formal", "fixGrammar"]
             : SettingsManager.shared.pinnedToneIDs
         let pinned = ids.compactMap { ToneRegistry.shared.tone(forID: $0) }
         if let noneTone = ToneRegistry.shared.tone(forID: "none") {

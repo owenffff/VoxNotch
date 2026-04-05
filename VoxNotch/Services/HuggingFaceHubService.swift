@@ -30,6 +30,13 @@ struct HFModelInfo: Identifiable, Decodable {
     case siblings, tags
   }
 
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    id = try c.decode(String.self, forKey: .id)
+    siblings = (try? c.decode([Sibling].self, forKey: .siblings)) ?? []
+    tags = (try? c.decode([String].self, forKey: .tags)) ?? []
+  }
+
   var displayName: String {
     String(id.split(separator: "/").last ?? Substring(id))
   }
@@ -191,7 +198,15 @@ actor HuggingFaceHubService {
     guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
       throw URLError(.badServerResponse)
     }
-    return try JSONDecoder().decode([HFModelInfo].self, from: data)
+    // Decode each model individually so one malformed entry doesn't drop the whole batch
+    guard let jsonArray = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+      return try JSONDecoder().decode([HFModelInfo].self, from: data)
+    }
+    let decoder = JSONDecoder()
+    return jsonArray.compactMap { dict in
+      guard let itemData = try? JSONSerialization.data(withJSONObject: dict) else { return nil }
+      return try? decoder.decode(HFModelInfo.self, from: itemData)
+    }
   }
 
   private nonisolated func directorySize(at url: URL) -> Int64 {
