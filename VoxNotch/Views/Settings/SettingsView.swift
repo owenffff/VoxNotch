@@ -34,7 +34,7 @@ enum SettingsPanel: String, CaseIterable, Identifiable {
     case .general: "General"
     case .recording: "Recording"
     case .speechModel: "Speech Model"
-    case .output: "Output"
+    case .output: "Transcription"
     case .ai: "Tones"
     case .history: "History"
     }
@@ -57,23 +57,31 @@ enum SettingsPanel: String, CaseIterable, Identifiable {
 /// Main settings view with mode-based sidebar navigation
 struct SettingsView: View {
 
-  @State private var selectedPanel: SettingsPanel = .general
+  @State private var selectedPanel: SettingsPanel = .recording
 
   var body: some View {
     HStack(spacing: 0) {
       List(selection: $selectedPanel) {
-        Label("General", systemImage: "gear")
-          .tag(SettingsPanel.general)
-        Label("Recording", systemImage: "waveform.circle")
-          .tag(SettingsPanel.recording)
-        Label("Speech Model", systemImage: "waveform")
-          .tag(SettingsPanel.speechModel)
-        Label("Output", systemImage: "text.cursor")
-          .tag(SettingsPanel.output)
-        Label("Tones", systemImage: "sparkles")
-          .tag(SettingsPanel.ai)
-        Label("History", systemImage: "clock.arrow.circlepath")
-          .tag(SettingsPanel.history)
+        Section("Input") {
+          Label("Recording", systemImage: "waveform.circle")
+            .tag(SettingsPanel.recording)
+          Label("Speech Model", systemImage: "waveform")
+            .tag(SettingsPanel.speechModel)
+        }
+
+        Section("Output") {
+          Label("Transcription", systemImage: "text.cursor")
+            .tag(SettingsPanel.output)
+          Label("Tones", systemImage: "sparkles")
+            .tag(SettingsPanel.ai)
+        }
+
+        Section("App") {
+          Label("General", systemImage: "gear")
+            .tag(SettingsPanel.general)
+          Label("History", systemImage: "clock.arrow.circlepath")
+            .tag(SettingsPanel.history)
+        }
       }
       .listStyle(.sidebar)
       .frame(width: 200)
