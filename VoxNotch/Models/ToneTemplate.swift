@@ -14,11 +14,35 @@ struct ToneTemplate: Codable, Identifiable, Hashable, Sendable {
   /// Stable identifier: built-ins use PromptTemplate.rawValue; custom use UUID string
   let id: String
   var displayName: String
+  var description: String
   var prompt: String
   /// True for the 7 built-in presets seeded from PromptTemplate
   let isBuiltIn: Bool
   /// Original prompt for built-ins only — enables "Revert to Default"
   let originalPrompt: String?
+
+  init(id: String, displayName: String, description: String = "", prompt: String, isBuiltIn: Bool, originalPrompt: String?) {
+    self.id = id
+    self.displayName = displayName
+    self.description = description
+    self.prompt = prompt
+    self.isBuiltIn = isBuiltIn
+    self.originalPrompt = originalPrompt
+  }
+
+  enum CodingKeys: String, CodingKey {
+    case id, displayName, description, prompt, isBuiltIn, originalPrompt
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(String.self, forKey: .id)
+    displayName = try container.decode(String.self, forKey: .displayName)
+    description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+    prompt = try container.decode(String.self, forKey: .prompt)
+    isBuiltIn = try container.decode(Bool.self, forKey: .isBuiltIn)
+    originalPrompt = try container.decodeIfPresent(String.self, forKey: .originalPrompt)
+  }
 
   func hash(into hasher: inout Hasher) { hasher.combine(id) }
   static func == (lhs: ToneTemplate, rhs: ToneTemplate) -> Bool { lhs.id == rhs.id }
