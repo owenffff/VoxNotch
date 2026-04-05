@@ -101,6 +101,10 @@ final class DictationStateMachine {
     /// Transition to a new state. Manages timers and notifies the delegate.
     func transition(to newState: DictationState) {
         let oldState = state
+        assert(
+            Self.isValidTransition(from: oldState, to: newState),
+            "Invalid state transition: \(oldState) → \(newState)"
+        )
         state = newState
 
         // Duration timer: only runs during .recording
@@ -115,6 +119,86 @@ final class DictationStateMachine {
         }
 
         delegate?.stateMachine(self, didTransitionFrom: oldState, to: newState)
+    }
+
+    /// Valid transitions per the dictation flow graph.
+    ///
+    ///     idle → idle | recording | modelSelecting | toneSelecting | warmingUp
+    ///     recording → warmingUp | transcribing | idle | error
+    ///     warmingUp → transcribing | idle | error
+    ///     transcribing → processingLLM | idle | error
+    ///     processingLLM → outputting | idle
+    ///     outputting → idle | error
+    ///     modelSelecting → idle | toneSelecting
+    ///     toneSelecting → idle | modelSelecting
+    ///     error → idle | warmingUp
+    ///
+    private static func isValidTransition(from oldState: DictationState, to newState: DictationState) -> Bool {
+        switch oldState {
+        case .idle:
+            switch newState {
+            case .idle, .recording, .modelSelecting, .toneSelecting, .warmingUp:
+                return true
+            default:
+                return false
+            }
+        case .recording:
+            switch newState {
+            case .warmingUp, .transcribing, .idle, .error:
+                return true
+            default:
+                return false
+            }
+        case .warmingUp:
+            switch newState {
+            case .transcribing, .idle, .error:
+                return true
+            default:
+                return false
+            }
+        case .transcribing:
+            switch newState {
+            case .processingLLM, .idle, .error:
+                return true
+            default:
+                return false
+            }
+        case .processingLLM:
+            switch newState {
+            case .outputting, .idle:
+                return true
+            default:
+                return false
+            }
+        case .outputting:
+            switch newState {
+            case .idle, .error:
+                return true
+            default:
+                return false
+            }
+        case .modelSelecting:
+            switch newState {
+            case .idle, .toneSelecting:
+                return true
+            default:
+                return false
+            }
+        case .toneSelecting:
+            switch newState {
+            case .idle, .modelSelecting:
+                return true
+            default:
+                return false
+            }
+        case .error:
+            switch newState {
+            case .idle, .warmingUp:
+                return true
+            default:
+                return false
+            }
+        }
     }
 
     /// Invalidate the current session (cancel in-flight work).

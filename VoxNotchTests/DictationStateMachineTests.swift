@@ -125,21 +125,60 @@ final class DictationStateMachineTests: XCTestCase {
 
     func testTransitionToError() {
         let error = NSError(domain: "test", code: 42, userInfo: [NSLocalizedDescriptionKey: "test error"])
+        sm.transition(to: .recording)
         sm.transition(to: .error(error))
         XCTAssertEqual(sm.state, .error(error))
     }
 
     func testTransitionFromAnyStateToIdle() {
-        let states: [DictationState] = [
-            .recording, .warmingUp, .transcribing, .processingLLM,
-            .outputting, .modelSelecting, .toneSelecting,
-            .error(NSError(domain: "test", code: 1))
-        ]
-        for state in states {
-            sm.transition(to: state)
-            sm.transition(to: .idle)
-            XCTAssertEqual(sm.state, .idle, "Should transition from \(state) to idle")
-        }
+        // Walk through valid paths to reach each state, then verify → idle works.
+        // recording → idle
+        sm.transition(to: .recording)
+        sm.transition(to: .idle)
+        XCTAssertEqual(sm.state, .idle)
+
+        // warmingUp → idle
+        sm.transition(to: .recording)
+        sm.transition(to: .warmingUp)
+        sm.transition(to: .idle)
+        XCTAssertEqual(sm.state, .idle)
+
+        // transcribing → idle
+        sm.transition(to: .recording)
+        sm.transition(to: .transcribing)
+        sm.transition(to: .idle)
+        XCTAssertEqual(sm.state, .idle)
+
+        // processingLLM → idle
+        sm.transition(to: .recording)
+        sm.transition(to: .transcribing)
+        sm.transition(to: .processingLLM)
+        sm.transition(to: .idle)
+        XCTAssertEqual(sm.state, .idle)
+
+        // outputting → idle
+        sm.transition(to: .recording)
+        sm.transition(to: .transcribing)
+        sm.transition(to: .processingLLM)
+        sm.transition(to: .outputting)
+        sm.transition(to: .idle)
+        XCTAssertEqual(sm.state, .idle)
+
+        // modelSelecting → idle
+        sm.transition(to: .modelSelecting)
+        sm.transition(to: .idle)
+        XCTAssertEqual(sm.state, .idle)
+
+        // toneSelecting → idle
+        sm.transition(to: .toneSelecting)
+        sm.transition(to: .idle)
+        XCTAssertEqual(sm.state, .idle)
+
+        // error → idle
+        sm.transition(to: .recording)
+        sm.transition(to: .error(NSError(domain: "test", code: 1)))
+        sm.transition(to: .idle)
+        XCTAssertEqual(sm.state, .idle)
     }
 
     // MARK: - Full Pipeline
