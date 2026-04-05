@@ -8,7 +8,6 @@
 import AppKit
 import SwiftUI
 
-@available(macOS 26.0, *)
 final class OnboardingWindowController: NSWindowController {
 
   // MARK: - Singleton
