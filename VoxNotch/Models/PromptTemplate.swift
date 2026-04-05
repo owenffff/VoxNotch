@@ -50,6 +50,17 @@ enum PromptTemplate: String, CaseIterable, Identifiable {
     }
   }
 
+  /// Short user-facing description (shown in preset picker, no prompt visible)
+  var toneDescription: String {
+    switch self {
+    case .formal: return "Convert to professional business writing"
+    case .casual: return "Clean up errors while keeping it conversational"
+    case .technical: return "Format for technical docs with precise terminology"
+    case .translation: return "Translate to another language"
+    case .custom: return ""
+    }
+  }
+
   /// The actual prompt text sent to the LLM
   var prompt: String {
     switch self {

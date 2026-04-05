@@ -109,6 +109,32 @@ final class ToneRegistry: @unchecked Sendable {
     {
       tones = decoded
       ensureNoneTone()
+      // Backfill descriptions for built-in tones (added in progressive disclosure update)
+      var backfilled = false
+      for i in tones.indices where tones[i].isBuiltIn && tones[i].description.isEmpty {
+        if tones[i].id == "none" {
+          tones[i] = ToneTemplate(
+            id: tones[i].id,
+            displayName: tones[i].displayName,
+            description: "No AI processing — transcribed text is used as-is",
+            prompt: tones[i].prompt,
+            isBuiltIn: true,
+            originalPrompt: tones[i].originalPrompt
+          )
+          backfilled = true
+        } else if let template = PromptTemplate(rawValue: tones[i].id) {
+          tones[i] = ToneTemplate(
+            id: tones[i].id,
+            displayName: tones[i].displayName,
+            description: template.toneDescription,
+            prompt: tones[i].prompt,
+            isBuiltIn: true,
+            originalPrompt: tones[i].originalPrompt
+          )
+          backfilled = true
+        }
+      }
+      if backfilled { save() }
       // Migrate old "No Processing" display name to "Original"
       if let idx = tones.firstIndex(where: { $0.id == "none" && $0.displayName == "No Processing" }) {
         tones[idx] = ToneTemplate(
@@ -145,6 +171,7 @@ final class ToneRegistry: @unchecked Sendable {
     let noneTone = ToneTemplate(
       id: "none",
       displayName: "Original",
+      description: "No AI processing — transcribed text is used as-is",
       prompt: "",
       isBuiltIn: true,
       originalPrompt: ""
@@ -155,6 +182,7 @@ final class ToneRegistry: @unchecked Sendable {
         ToneTemplate(
           id: template.rawValue,
           displayName: template.displayName,
+          description: template.toneDescription,
           prompt: template.prompt,
           isBuiltIn: true,
           originalPrompt: template.prompt
