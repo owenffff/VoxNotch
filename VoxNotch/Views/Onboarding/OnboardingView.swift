@@ -20,7 +20,7 @@ enum OnboardingStep: Int, CaseIterable {
     switch self {
     case .welcome: "Welcome to VoxNotch"
     case .permissions: "Permissions"
-    case .model: "Speech Model"
+    case .model: "Enhance Your Dictation"
     case .tutorial: "How to Use"
     case .complete: "Ready!"
     }
@@ -53,6 +53,10 @@ struct OnboardingView: View {
   @State private var downloadProgress: Double = 0
   @State private var downloadError: String?
   @State private var isModelDownloaded = false
+
+  /// Tone opt-in state
+  @State private var toneOptIn = false
+  @State private var appleIntelligenceAvailable = false
 
   // MARK: - Body
 
@@ -130,7 +134,7 @@ struct OnboardingView: View {
 
       VStack(alignment: .leading, spacing: 12) {
         featureRow(icon: "keyboard", text: "Hold hotkey to record, release to transcribe")
-        featureRow(icon: "sparkles", text: "Optional AI text enhancement with tones")
+        featureRow(icon: "sparkles", text: "AI tones transform speech into any writing style")
         featureRow(icon: "lock.shield", text: "Private, on-device processing")
         featureRow(icon: "bolt.fill", text: "Fast and lightweight")
       }
@@ -302,12 +306,106 @@ struct OnboardingView: View {
       Text("You can download additional models later in Settings → Speech Model.")
         .font(.caption)
         .foregroundStyle(.tertiary)
+
+      // MARK: AI Tones showcase
+      Divider()
+        .padding(.vertical, 4)
+
+      VStack(spacing: 12) {
+        HStack(spacing: 6) {
+          Image(systemName: "sparkles")
+            .foregroundColor(.accentColor)
+          Text("AI Tones")
+            .font(.headline)
+          Text("(Optional)")
+            .font(.headline)
+            .foregroundStyle(.secondary)
+        }
+
+        Text("After transcription, tones transform your text using AI.")
+          .font(.callout)
+          .foregroundStyle(.secondary)
+          .multilineTextAlignment(.center)
+
+        // Before/after examples
+        toneExampleCard(
+          raw: "hey can you look at the deploy thing its broken again",
+          toneName: "Formal",
+          processed: "Could you please investigate the deployment issue? It appears to have recurred."
+        )
+        toneExampleCard(
+          raw: "the api returns a json with like user fields and stuff",
+          toneName: "Technical",
+          processed: "The API returns a JSON response containing user-related fields."
+        )
+
+        // Opt-in toggle
+        VStack(spacing: 8) {
+          Text("Start with a tone?")
+            .font(.callout.bold())
+
+          Picker("", selection: $toneOptIn) {
+            Text("Not now").tag(false)
+            Text("Formal (Recommended)").tag(true)
+          }
+          .pickerStyle(.segmented)
+          .frame(maxWidth: 300)
+
+          if toneOptIn {
+            if appleIntelligenceAvailable {
+              Label("Using Apple Intelligence (on-device, private)", systemImage: "checkmark.shield")
+                .foregroundStyle(.green)
+                .font(.caption)
+            } else {
+              Text("Requires an AI provider — set one up in Settings → Tones.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+          }
+        }
+        .padding(.top, 4)
+      }
     }
     .padding()
     .onAppear {
       // Check if the default model is already downloaded
       isModelDownloaded = selectedModel.isDownloaded
+      appleIntelligenceAvailable = AnyLanguageModelProvider.isAppleIntelligenceAvailable
     }
+  }
+
+  private func toneExampleCard(raw: String, toneName: String, processed: String) -> some View {
+    VStack(alignment: .leading, spacing: 6) {
+      HStack(spacing: 4) {
+        Text("You said:")
+          .font(.caption2.bold())
+          .foregroundStyle(.secondary)
+        Spacer()
+      }
+      Text("\"\(raw)\"")
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .italic()
+
+      HStack(spacing: 4) {
+        Text("\(toneName) tone:")
+          .font(.caption2.bold())
+          .foregroundColor(.accentColor)
+        Spacer()
+      }
+      Text("\"\(processed)\"")
+        .font(.caption)
+    }
+    .padding(10)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(
+      RoundedRectangle(cornerRadius: 8)
+        .fill(Color.accentColor.opacity(0.06))
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: 8)
+        .stroke(Color.accentColor.opacity(0.15), lineWidth: 1)
+    )
   }
 
   private func modelCard(_ model: SpeechModel) -> some View {
@@ -506,6 +604,11 @@ struct OnboardingView: View {
     SettingsManager.shared.onboardingPermissionsState == .skipped
       || SettingsManager.shared.onboardingModelState == .skipped
       || SettingsManager.shared.onboardingTutorialState == .skipped
+      || needsToneProviderSetup
+  }
+
+  private var needsToneProviderSetup: Bool {
+    toneOptIn && !appleIntelligenceAvailable
   }
 
   private var skippedStepMessages: [String] {
@@ -515,6 +618,9 @@ struct OnboardingView: View {
     }
     if SettingsManager.shared.onboardingModelState == .skipped {
       messages.append("Download a speech model in Settings before dictating.")
+    }
+    if needsToneProviderSetup {
+      messages.append("Set up an AI provider in Settings → Tones to activate your tone.")
     }
     return messages
   }
@@ -644,6 +750,12 @@ struct OnboardingView: View {
       SettingsManager.shared.onboardingPermissionsState = .completed
     case .model:
       SettingsManager.shared.onboardingModelState = .completed
+      if toneOptIn {
+        SettingsManager.shared.activeToneID = "formal"
+        if appleIntelligenceAvailable {
+          SettingsManager.shared.llmProvider = "apple"
+        }
+      }
     case .tutorial:
       SettingsManager.shared.onboardingTutorialState = .completed
     case .welcome, .complete:
