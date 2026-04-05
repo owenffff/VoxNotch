@@ -16,6 +16,8 @@ import MLXAudioSTT
 
 /// Speech-to-text provider using MLX Audio (GLM-ASR models)
 /// Implements TranscriptionProvider protocol for seamless integration
+///
+/// Thread Safety: `lock` (NSLock) protects `isModelLoaded` and `model`.
 final class MLXAudioProvider: TranscriptionProvider, @unchecked Sendable {
 
   // MARK: - Properties

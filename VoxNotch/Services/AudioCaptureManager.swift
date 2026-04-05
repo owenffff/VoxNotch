@@ -9,9 +9,12 @@ import Foundation
 import AVFoundation
 import CoreAudio
 import Accelerate
+import os.log
 
 /// Manages audio capture from the system microphone
 final class AudioCaptureManager {
+
+    private let logger = Logger(subsystem: "com.voxnotch", category: "AudioCaptureManager")
 
     // MARK: - Types
 
@@ -964,7 +967,11 @@ final class AudioCaptureManager {
     /// Clean up a recorded audio file
     /// - Parameter url: The file URL to delete
     func cleanupFile(at url: URL) {
-        try? FileManager.default.removeItem(at: url)
-        print("AudioCaptureManager: Cleaned up file at \(url.path)")
+        do {
+            try FileManager.default.removeItem(at: url)
+            logger.debug("Cleaned up file at \(url.path)")
+        } catch {
+            logger.warning("Failed to clean up file at \(url.path): \(error.localizedDescription)")
+        }
     }
 }

@@ -19,6 +19,7 @@ struct HFModelBrowserSheet: View {
   @State private var isLoading: Bool = false
   @State private var isOffline: Bool = false
   @State private var addedModelID: String?   // repo ID just added (for feedback)
+  @State private var downloadError: String?  // error message from failed download
 
   // MARK: - Body
 
@@ -122,6 +123,16 @@ struct HFModelBrowserSheet: View {
     }
     .frame(width: 560, height: 520)
     .task { await loadModels() }
+    .alert("Download Failed", isPresented: Binding(
+      get: { downloadError != nil },
+      set: { if !$0 { downloadError = nil } }
+    )) {
+      Button("OK") { downloadError = nil }
+    } message: {
+      if let downloadError {
+        Text(downloadError)
+      }
+    }
   }
 
   // MARK: - Filtering
@@ -172,7 +183,11 @@ struct HFModelBrowserSheet: View {
     addedModelID = model.id
 
     Task {
-      try? await MLXAudioModelManager.shared.downloadAndLoadCustom(model: customModel)
+      do {
+        try await MLXAudioModelManager.shared.downloadAndLoadCustom(model: customModel)
+      } catch {
+        downloadError = error.localizedDescription
+      }
     }
   }
 }

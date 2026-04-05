@@ -9,9 +9,12 @@ import Foundation
 import AVFoundation
 import ScreenCaptureKit
 import Accelerate
+import os.log
 
 /// Manages system audio capture via ScreenCaptureKit (SCStream)
 final class SystemAudioCaptureManager: NSObject, SCStreamOutput, SCStreamDelegate {
+
+    private let logger = Logger(subsystem: "com.voxnotch", category: "SystemAudioCaptureManager")
 
     // MARK: - Types
 
@@ -249,7 +252,11 @@ final class SystemAudioCaptureManager: NSObject, SCStreamOutput, SCStreamDelegat
 
     /// Clean up a recorded audio file
     func cleanupFile(at url: URL) {
-        try? FileManager.default.removeItem(at: url)
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch {
+            logger.warning("Failed to clean up file at \(url.path): \(error.localizedDescription)")
+        }
     }
 
     // MARK: - SCStreamOutput

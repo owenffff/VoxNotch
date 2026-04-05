@@ -13,6 +13,8 @@ import os.log
 
 /// Speech-to-text provider using FluidAudio's AsrManager
 /// Implements TranscriptionProvider protocol for seamless integration
+///
+/// Thread Safety: `lock` (NSLock) protects `asrManager` and `isInitializing`.
 final class FluidAudioProvider: TranscriptionProvider, @unchecked Sendable {
 
   // MARK: - Properties

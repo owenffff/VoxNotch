@@ -37,6 +37,8 @@ enum DatabaseError: LocalizedError {
 /// Database manager for persisting transcriptions
 ///
 /// Uses GRDB.swift with SQLite for local storage including FTS5 full-text search.
+///
+/// Thread Safety: serial `DispatchQueue` (`queue`) protects all access to `dbPool`.
 final class DatabaseManager: @unchecked Sendable {
 
   // MARK: - Singleton

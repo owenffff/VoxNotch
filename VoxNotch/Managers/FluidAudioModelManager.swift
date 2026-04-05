@@ -55,6 +55,9 @@ enum FluidAudioModelVersion: String, CaseIterable, Identifiable, Sendable {
 // MARK: - FluidAudio Model Manager
 
 /// Manages FluidAudio model downloads and lifecycle
+///
+/// Thread Safety: `lock` (NSLock) protects mutable model state; `@Observable` property
+/// updates are dispatched to MainActor via `MainActor.run`.
 @Observable
 final class FluidAudioModelManager: @unchecked Sendable {
 

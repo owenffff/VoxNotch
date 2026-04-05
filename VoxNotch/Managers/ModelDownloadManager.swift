@@ -124,6 +124,8 @@ final class ModelDownloadManager {
 
   static let shared = ModelDownloadManager()
 
+  private let logger = Logger(subsystem: "com.voxnotch", category: "ModelDownloadManager")
+
   /// Current download states for all models
   private(set) var downloadStates: [LegacyWhisperModel: LegacyModelDownloadState] = [:]
 
@@ -162,7 +164,11 @@ final class ModelDownloadManager {
     self.modelsDirectory = appDir.appendingPathComponent("Models", isDirectory: true)
 
     /// Create directory if needed
-    try? FileManager.default.createDirectory(at: modelsDirectory, withIntermediateDirectories: true)
+    do {
+      try FileManager.default.createDirectory(at: self.modelsDirectory, withIntermediateDirectories: true)
+    } catch {
+      self.logger.error("Failed to create models directory at \(self.modelsDirectory.path): \(error.localizedDescription)")
+    }
 
     /// Initialize download states
     refreshDownloadStates()

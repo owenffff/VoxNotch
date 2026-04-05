@@ -73,6 +73,9 @@ enum MLXAudioModelVersion: String, CaseIterable, Identifiable, Sendable {
 // MARK: - MLX Audio Model Manager
 
 /// Manages MLX Audio model downloads and lifecycle
+///
+/// Thread Safety: `lock` (NSLock) protects mutable model state; `@Observable` property
+/// updates are dispatched to MainActor via `MainActor.run`.
 @Observable
 final class MLXAudioModelManager: @unchecked Sendable {
 

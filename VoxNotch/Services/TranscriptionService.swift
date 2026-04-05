@@ -118,6 +118,8 @@ enum TranscriptionError: LocalizedError {
 // MARK: - Transcription Service
 
 /// Main service for managing transcription using configurable ASR providers
+///
+/// Thread Safety: `providerLock` (NSLock) protects all access to `primaryProvider`.
 final class TranscriptionService: @unchecked Sendable {
 
   // MARK: - Properties
@@ -142,7 +144,12 @@ final class TranscriptionService: @unchecked Sendable {
       let primary = primaryProvider
       providerLock.unlock()
       if let primary {
-        return await primary.isReady
+        let ready = await primary.isReady
+        // Re-check: if provider was swapped during await, report not ready
+        providerLock.lock()
+        let stillCurrent = (primaryProvider as AnyObject) === (primary as AnyObject)
+        providerLock.unlock()
+        return stillCurrent && ready
       }
       let engine = ASREngine(rawValue: settings.asrEngine) ?? .fluidAudio
       switch engine {
@@ -206,11 +213,22 @@ final class TranscriptionService: @unchecked Sendable {
   }
 
   /// Reconfigure providers (call after settings change)
+  ///
+  /// Atomically replaces the provider in a single lock scope to avoid
+  /// a window where `primaryProvider` is nil between the old nil-set
+  /// and the new assignment.
   func reconfigure() {
+    let engine = ASREngine(rawValue: settings.asrEngine) ?? .fluidAudio
     providerLock.lock()
-    primaryProvider = nil
+    switch engine {
+    case .fluidAudio:
+      primaryProvider = FluidAudioProvider()
+      logger.info("Reconfigured: FluidAudio")
+    case .mlxAudio:
+      primaryProvider = MLXAudioProvider()
+      logger.info("Reconfigured: MLX Audio")
+    }
     providerLock.unlock()
-    configureProviders()
   }
 
   // MARK: - Public Methods
@@ -298,6 +316,13 @@ final class TranscriptionService: @unchecked Sendable {
     providerLock.unlock()
     if let provider {
       try await provider.reinitialize()
+      // Verify provider wasn't swapped during reinitialize
+      providerLock.lock()
+      let stillCurrent = primaryProvider as? FluidAudioProvider === provider
+      providerLock.unlock()
+      if !stillCurrent {
+        logger.warning("Provider swapped during FluidAudio model load — reinitialize result orphaned")
+      }
     }
   }
 
@@ -311,6 +336,13 @@ final class TranscriptionService: @unchecked Sendable {
     providerLock.unlock()
     if let provider {
       try await provider.reinitialize()
+      // Verify provider wasn't swapped during reinitialize
+      providerLock.lock()
+      let stillCurrent = primaryProvider as? MLXAudioProvider === provider
+      providerLock.unlock()
+      if !stillCurrent {
+        logger.warning("Provider swapped during MLX Audio model load — reinitialize result orphaned")
+      }
     }
   }
 

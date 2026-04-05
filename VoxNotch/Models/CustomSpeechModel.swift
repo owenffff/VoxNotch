@@ -37,12 +37,15 @@ struct CustomSpeechModel: Codable, Identifiable, Hashable, Sendable {
 // MARK: - Custom Model Registry
 
 /// Observable registry of user-added custom HF ASR models persisted in UserDefaults
+///
+/// Thread Safety: `lock` (NSLock) protects all reads/writes to the `models` array.
 @Observable
 final class CustomModelRegistry: @unchecked Sendable {
 
   static let shared = CustomModelRegistry()
 
   private let defaultsKey = "customSpeechModels"
+  private let lock = NSLock()
 
   private(set) var models: [CustomSpeechModel] = []
 
@@ -56,32 +59,34 @@ final class CustomModelRegistry: @unchecked Sendable {
   @discardableResult
   func add(repoID: String, displayName: String) -> CustomSpeechModel {
     let model = CustomSpeechModel(displayName: displayName, hfRepoID: repoID)
-    models.append(model)
+    lock.withLock { models.append(model) }
     save()
     return model
   }
 
   /// Remove a model by ID
   func remove(id: String) {
-    models.removeAll { $0.id == id }
+    lock.withLock { models.removeAll { $0.id == id } }
     save()
   }
 
   /// Look up a model by ID
   func model(withID id: String) -> CustomSpeechModel? {
-    models.first { $0.id == id }
+    lock.withLock { models.first { $0.id == id } }
   }
 
   /// Mark a model as successfully downloaded (persists across restarts)
   func markDownloaded(id: String) {
-    guard let index = models.firstIndex(where: { $0.id == id }) else { return }
-    models[index].isDownloaded = true
+    lock.withLock {
+      guard let index = models.firstIndex(where: { $0.id == id }) else { return }
+      models[index].isDownloaded = true
+    }
     save()
   }
 
   /// Whether a model with the given repo ID already exists
   func contains(repoID: String) -> Bool {
-    models.contains { $0.hfRepoID == repoID }
+    lock.withLock { models.contains { $0.hfRepoID == repoID } }
   }
 
   // MARK: - Persistence
@@ -90,11 +95,12 @@ final class CustomModelRegistry: @unchecked Sendable {
     guard let data = UserDefaults.standard.data(forKey: defaultsKey),
           let decoded = try? JSONDecoder().decode([CustomSpeechModel].self, from: data)
     else { return }
-    models = decoded
+    lock.withLock { models = decoded }
   }
 
   private func save() {
-    guard let data = try? JSONEncoder().encode(models) else { return }
+    let snapshot = lock.withLock { models }
+    guard let data = try? JSONEncoder().encode(snapshot) else { return }
     UserDefaults.standard.set(data, forKey: defaultsKey)
   }
 }

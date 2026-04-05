@@ -63,8 +63,10 @@ enum OllamaPullState: Equatable, Sendable {
 // MARK: - LLM Model Manager
 
 /// Manages LLM model discovery and downloads for local providers (Ollama)
-@Observable
-final class LLMModelManager: @unchecked Sendable {
+///
+/// Thread Safety: All mutable state is accessed on the MainActor.
+@MainActor @Observable
+final class LLMModelManager {
 
   // MARK: - Singleton
 

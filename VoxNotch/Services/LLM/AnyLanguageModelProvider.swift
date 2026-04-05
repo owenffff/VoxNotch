@@ -16,6 +16,8 @@ import os.log
 /// Supports: Apple Intelligence, Ollama, OpenAI, Anthropic, Gemini.
 /// Bridges VoxNotch's `LLMProvider.process(text:prompt:)` interface to
 /// `LanguageModelSession.respond(to:)`.
+// Thread Safety: All stored properties are immutable (`let`). The `any LanguageModel` existential
+// may not itself conform to Sendable, so @unchecked is retained for that reason only.
 final class AnyLanguageModelProvider: LLMProvider, @unchecked Sendable {
 
   // MARK: - Properties

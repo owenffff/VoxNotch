@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import os.log
 import Security
 
 /// Errors that can occur during keychain operations
@@ -31,6 +32,8 @@ enum KeychainError: LocalizedError {
 
 /// Manages secure storage of API keys in macOS Keychain
 final class KeychainManager {
+
+  private let logger = Logger(subsystem: "com.voxnotch", category: "KeychainManager")
 
   // MARK: - Types
 
@@ -161,7 +164,11 @@ final class KeychainManager {
   /// Delete all stored API keys
   func deleteAllAPIKeys() {
     for keyType in KeyType.allCases {
-      try? deleteAPIKey(for: keyType)
+      do {
+        try deleteAPIKey(for: keyType)
+      } catch {
+        logger.warning("Failed to delete API key for \(keyType.rawValue): \(error.localizedDescription)")
+      }
     }
   }
 }

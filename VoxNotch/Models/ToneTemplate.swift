@@ -51,12 +51,15 @@ struct ToneTemplate: Codable, Identifiable, Hashable, Sendable {
 // MARK: - ToneRegistry
 
 /// Observable registry of all tone presets (built-in + custom), persisted in UserDefaults
+///
+/// Thread Safety: `lock` (NSLock) protects all reads/writes to the `tones` array.
 @Observable
 final class ToneRegistry: @unchecked Sendable {
 
   static let shared = ToneRegistry()
 
   private let defaultsKey = "toneTemplates"
+  private let lock = NSLock()
 
   private(set) var tones: [ToneTemplate] = []
 
@@ -68,35 +71,39 @@ final class ToneRegistry: @unchecked Sendable {
 
   /// Add a new custom tone to the registry
   func add(_ tone: ToneTemplate) {
-    tones.append(tone)
+    lock.withLock { tones.append(tone) }
     save()
   }
 
   /// Update an existing tone
   func update(_ tone: ToneTemplate) {
-    guard let index = tones.firstIndex(where: { $0.id == tone.id }) else { return }
-    tones[index] = tone
+    lock.withLock {
+      guard let index = tones.firstIndex(where: { $0.id == tone.id }) else { return }
+      tones[index] = tone
+    }
     save()
   }
 
   /// Remove a tone by ID (only custom tones should be removed)
   func remove(id: String) {
-    tones.removeAll { $0.id == id }
+    lock.withLock { tones.removeAll { $0.id == id } }
     save()
   }
 
   /// Look up a tone by ID
   func tone(forID id: String) -> ToneTemplate? {
-    tones.first { $0.id == id }
+    lock.withLock { tones.first { $0.id == id } }
   }
 
   /// Revert a built-in tone's prompt to its original value
   func revert(id: String) {
-    guard let index = tones.firstIndex(where: { $0.id == id }),
-          tones[index].isBuiltIn,
-          let original = tones[index].originalPrompt
-    else { return }
-    tones[index].prompt = original
+    lock.withLock {
+      guard let index = tones.firstIndex(where: { $0.id == id }),
+            tones[index].isBuiltIn,
+            let original = tones[index].originalPrompt
+      else { return }
+      tones[index].prompt = original
+    }
     save()
   }
 
@@ -230,7 +237,8 @@ final class ToneRegistry: @unchecked Sendable {
   }
 
   private func save() {
-    guard let data = try? JSONEncoder().encode(tones) else { return }
+    let snapshot = lock.withLock { tones }
+    guard let data = try? JSONEncoder().encode(snapshot) else { return }
     UserDefaults.standard.set(data, forKey: defaultsKey)
   }
 }

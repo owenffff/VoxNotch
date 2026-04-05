@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import os.log
 
 // MARK: - Notification Names
 
@@ -22,6 +23,8 @@ final class SettingsManager {
   // MARK: - Singleton
 
   static let shared = SettingsManager()
+
+  private let logger = Logger(subsystem: "com.voxnotch", category: "SettingsManager")
 
   // MARK: - Settings Keys
 
@@ -228,9 +231,17 @@ final class SettingsManager {
     }
     set {
       if let key = newValue, !key.isEmpty {
-        try? KeychainManager.shared.saveAPIKey(key, for: .openAI)
+        do {
+          try KeychainManager.shared.saveAPIKey(key, for: .openAI)
+        } catch {
+          logger.error("Failed to save OpenAI API key to Keychain: \(error.localizedDescription)")
+        }
       } else {
-        try? KeychainManager.shared.deleteAPIKey(for: .openAI)
+        do {
+          try KeychainManager.shared.deleteAPIKey(for: .openAI)
+        } catch {
+          logger.error("Failed to delete OpenAI API key from Keychain: \(error.localizedDescription)")
+        }
       }
     }
   }
