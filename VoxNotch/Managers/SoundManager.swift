@@ -7,6 +7,7 @@
 
 import AppKit
 import AVFoundation
+import os.log
 
 final class SoundManager {
 
@@ -66,7 +67,7 @@ final class SoundManager {
       currentPlayer = player
       player.play()
     } catch {
-      print("SoundManager: Failed to play \(url.lastPathComponent): \(error)")
+      Logger(subsystem: "com.voxnotch", category: "SoundManager").error("Failed to play \(url.lastPathComponent): \(error.localizedDescription)")
       NSSound(named: "Tink")?.play()
     }
   }

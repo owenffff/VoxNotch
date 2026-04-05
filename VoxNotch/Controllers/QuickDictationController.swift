@@ -79,7 +79,7 @@ final class QuickDictationController {
             self?.appState.recordingDuration = elapsed
         }
         stateMachine.onWatchdogFired = { [weak self] in
-            print("QuickDictationController: Watchdog triggered - force resetting stuck recording state")
+            self?.logger.warning("Watchdog triggered - force resetting stuck recording state")
             self?.cancelCurrentSession()
         }
         stateMachine.onPipelineOutputSuccess = { [weak self] wasClipboard in
@@ -113,20 +113,16 @@ final class QuickDictationController {
 
     private func setupHotkeyHandler() {
         hotkeyManager.onHotkeyEvent = { [weak self] event in
-            print("QuickDictationController: Received hotkey event: \(event)")
+            self?.logger.debug("Received hotkey event: \(String(describing: event))")
             switch event {
             case .keyDown:
-                print("QuickDictationController: Starting recording...")
                 self?.startRecording()
             case .keyUp:
                 if case .modelSelecting = self?.stateMachine.state {
-                    print("QuickDictationController: Confirming model selection...")
                     self?.confirmModelSelection()
                 } else if case .toneSelecting = self?.stateMachine.state {
-                    print("QuickDictationController: Confirming tone selection...")
                     self?.confirmToneSelection()
                 } else {
-                    print("QuickDictationController: Stopping recording...")
                     self?.stateMachine.stopRecordingAndTranscribe(savedFrontmostApp: self?.savedFrontmostApp)
                 }
             }
@@ -182,9 +178,9 @@ final class QuickDictationController {
             audioManager.requestMicrophonePermission { _ in }
         }
         if hotkeyManager.startListening() {
-            print("QuickDictationController: Hotkey listener started successfully")
+            logger.info("Hotkey listener started")
         } else {
-            print("QuickDictationController: Waiting for accessibility permission...")
+            logger.info("Waiting for accessibility permission...")
             startPermissionCheck()
         }
     }
@@ -200,7 +196,7 @@ final class QuickDictationController {
                 timer.invalidate()
                 self.permissionCheckTimer = nil
                 if self.hotkeyManager.startListening() {
-                    print("QuickDictationController: Hotkey listener started after permission granted")
+                    self.logger.info("Hotkey listener started after permission granted")
                 }
             }
         }
@@ -230,14 +226,14 @@ final class QuickDictationController {
     // MARK: - Recording Flow (Pre-flight Checks Only)
 
     private func startRecording() {
-        print("QuickDictationController: startRecording called, state: \(stateMachine.state)")
+        logger.debug("startRecording called, state: \(String(describing: self.stateMachine.state))")
 
         if case .recording = stateMachine.state { return }
 
         // Cooldown after a recent cancel
         if let lastCancel = stateMachine.lastCancelTime,
            Date().timeIntervalSince(lastCancel) < cancelCooldown {
-            print("QuickDictationController: Ignoring startRecording during cooldown")
+            logger.debug("Ignoring startRecording during cooldown")
             return
         }
 
@@ -286,7 +282,7 @@ final class QuickDictationController {
             modelDisplayName = "Unknown"
         }
         if !isModelDownloaded {
-            print("QuickDictationController: Model not downloaded, directing to Settings")
+            logger.info("Model not downloaded, directing to Settings")
             let message: String
             if SettingsManager.shared.onboardingModelState == .skipped {
                 message = "Download a speech model in Settings to start dictating"
@@ -303,24 +299,24 @@ final class QuickDictationController {
 
         // Mic permission pre-check
         guard audioManager.hasMicrophonePermission else {
-            print("QuickDictationController: No mic permission, requesting...")
+            logger.info("No mic permission, requesting...")
             audioManager.requestMicrophonePermission { [weak self] granted in
-                print("QuickDictationController: Mic permission result: \(granted)")
+                self?.logger.info("Mic permission result: \(granted)")
                 if granted { self?.startRecording() }
             }
             return
         }
 
-        print("QuickDictationController: Starting audio capture...")
+        logger.debug("Starting audio capture...")
 
         savedFrontmostApp = NSWorkspace.shared.frontmostApplication
         appState.recordingDuration = 0
 
         do {
             try stateMachine.beginRecording()
-            print("QuickDictationController: Audio capture started")
+            logger.debug("Audio capture started")
         } catch {
-            print("QuickDictationController: Failed to start audio capture: \(error)")
+            logger.error("Failed to start audio capture: \(error.localizedDescription)")
             stateMachine.transition(to: .error(error))
         }
     }
@@ -348,7 +344,7 @@ final class QuickDictationController {
     }
 
     private func cancelCurrentSession() {
-        print("QuickDictationController: Cancelling current session")
+        logger.debug("Cancelling current session")
         savedFrontmostApp = nil
         stateMachine.cancelPipeline()
         NotchManager.shared.hide()
@@ -409,7 +405,7 @@ final class QuickDictationController {
         } else {
             let selected = candidates[index]
             SettingsManager.shared.activeToneID = selected.id
-            print("QuickDictationController: Tone switched to \(selected.displayName)")
+            logger.info("Tone switched to \(selected.displayName)")
             NotchManager.shared.showConfirmation(selected.displayName)
             stateMachine.transition(to: .idle)
         }
@@ -471,7 +467,7 @@ final class QuickDictationController {
             let selected = candidates[index]
             SettingsManager.shared.speechModel = selected.settingsID
             stateMachine.reconfigureTranscription()
-            print("QuickDictationController: Model switched to \(selected.displayName)")
+            logger.info("Model switched to \(selected.displayName)")
 
             if selected.isDownloaded {
                 NotchManager.shared.showConfirmation(selected.displayName)

@@ -91,6 +91,10 @@ final class AudioCaptureManager {
     /// Resampling converter for producing 16kHz mono from native input
     private var resamplingConverter: AVAudioConverter?
 
+    /// Reusable output buffer for the resampling converter.
+    /// Created lazily on first tap, reused every frame to avoid per-frame allocation.
+    private var reusableOutputBuffer: AVAudioPCMBuffer?
+
     /// Output format for resampled audio (16kHz mono Float32)
     private let resampledFormat = AVAudioFormat(
         commonFormat: .pcmFormatFloat32,
@@ -237,7 +241,7 @@ final class AudioCaptureManager {
             )
 
             if status != noErr {
-                print("AudioCaptureManager: Failed to set input device (\(deviceID)): \(status)")
+                logger.error("Failed to set input device (\(deviceID)): \(status)")
             }
         } else {
             /// Revert to system default
@@ -380,7 +384,19 @@ final class AudioCaptureManager {
 
     private var fftSetup: FFTSetup?
     private let fftLog2N: vDSP_Length = 10  // log2(1024)
+    private let fftSize = 1024
     private var previousBands = [Float](repeating: 0, count: 6)
+
+    // Pre-allocated FFT working arrays (reused every call to avoid per-frame heap allocations)
+    private var fftInput = [Float](repeating: 0, count: 1024)
+    private var fftWindow: [Float] = {
+        var w = [Float](repeating: 0, count: 1024)
+        vDSP_hann_window(&w, vDSP_Length(1024), Int32(vDSP_HANN_NORM))
+        return w
+    }()
+    private var fftReal = [Float](repeating: 0, count: 512)
+    private var fftImag = [Float](repeating: 0, count: 512)
+    private var fftMagnitudes = [Float](repeating: 0, count: 512)
 
     // MARK: - Silence Detection
 
@@ -453,44 +469,48 @@ final class AudioCaptureManager {
             guard let self = self, self.isRecording else { return }
 
             // Lazily create resampling converter from the actual hardware format
-            self.audioLock.withLock {
-                if self.resamplingConverter == nil {
-                    self.resamplingConverter = AVAudioConverter(from: buffer.format, to: self.resampledFormat)
-                }
-            }
-
-            // Resample mic audio to 16kHz mono
-            var micSamples16kHz: [Float] = []
-            if let converter = self.audioLock.withLock({ self.resamplingConverter }) {
-                let ratio = self.targetSampleRate / buffer.format.sampleRate
-                let outputFrameCapacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1
-
-                if let outputBuffer = AVAudioPCMBuffer(pcmFormat: self.resampledFormat, frameCapacity: outputFrameCapacity) {
-                    var error: NSError?
-                    var consumed = false
-                    converter.convert(to: outputBuffer, error: &error) { _, outStatus in
-                        if consumed {
-                            outStatus.pointee = .noDataNow
-                            return nil
-                        }
-                        consumed = true
-                        outStatus.pointee = .haveData
-                        return buffer
-                    }
-
-                    if error == nil, outputBuffer.frameLength > 0, let channelData = outputBuffer.floatChannelData {
-                        micSamples16kHz = Array(UnsafeBufferPointer(start: channelData[0], count: Int(outputBuffer.frameLength)))
+            // Double-checked pattern: only acquire lock on first frame
+            if self.resamplingConverter == nil {
+                self.audioLock.withLock {
+                    if self.resamplingConverter == nil {
+                        self.resamplingConverter = AVAudioConverter(from: buffer.format, to: self.resampledFormat)
                     }
                 }
             }
 
-            guard !micSamples16kHz.isEmpty else { return }
+            guard let converter = self.resamplingConverter else { return }
 
-            // Create a buffer with the resampled samples for downstream processing
-            guard let resampledBuffer = AVAudioPCMBuffer(pcmFormat: self.resampledFormat, frameCapacity: AVAudioFrameCount(micSamples16kHz.count)) else { return }
-            resampledBuffer.frameLength = AVAudioFrameCount(micSamples16kHz.count)
-            if let channelData = resampledBuffer.floatChannelData {
-                channelData[0].update(from: micSamples16kHz, count: micSamples16kHz.count)
+            // Resample mic audio to 16kHz mono using reusable output buffer
+            let ratio = self.targetSampleRate / buffer.format.sampleRate
+            let outputFrameCapacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1
+
+            // Lazily create or grow the reusable output buffer
+            if self.reusableOutputBuffer == nil || self.reusableOutputBuffer!.frameCapacity < outputFrameCapacity {
+                self.reusableOutputBuffer = AVAudioPCMBuffer(pcmFormat: self.resampledFormat, frameCapacity: outputFrameCapacity)
+            }
+            guard let outputBuffer = self.reusableOutputBuffer else { return }
+            outputBuffer.frameLength = 0
+
+            var error: NSError?
+            var consumed = false
+            converter.convert(to: outputBuffer, error: &error) { _, outStatus in
+                if consumed {
+                    outStatus.pointee = .noDataNow
+                    return nil
+                }
+                consumed = true
+                outStatus.pointee = .haveData
+                return buffer
+            }
+
+            let frameCount = Int(outputBuffer.frameLength)
+            guard error == nil, frameCount > 0, let outputChannelData = outputBuffer.floatChannelData else { return }
+
+            // Create resampledBuffer and copy directly from outputBuffer (skip Array intermediate)
+            guard let resampledBuffer = AVAudioPCMBuffer(pcmFormat: self.resampledFormat, frameCapacity: AVAudioFrameCount(frameCount)) else { return }
+            resampledBuffer.frameLength = AVAudioFrameCount(frameCount)
+            if let destChannelData = resampledBuffer.floatChannelData {
+                destChannelData[0].update(from: outputChannelData[0], count: frameCount)
             }
 
             // Accumulate buffers for file saving
@@ -502,12 +522,6 @@ final class AudioCaptureManager {
 
             // Update audio level for visualization
             self.updateAudioLevel(buffer: resampledBuffer)
-
-            // Stream raw samples for real-time processing
-            self.onAudioSamples?(micSamples16kHz)
-
-            // Produce 16kHz mono resampled samples for ASR
-            self.onResampledAudioSamples?(micSamples16kHz)
         }
         isTapInstalled = true
     }
@@ -518,7 +532,7 @@ final class AudioCaptureManager {
         }
 
         if isRecording {
-            print("AudioCaptureManager: Already recording, restarting tap...")
+            logger.debug("Already recording, restarting tap...")
             audioEngine.inputNode.removeTap(onBus: 0)
             isTapInstalled = false
         }
@@ -537,7 +551,7 @@ final class AudioCaptureManager {
         let deviceChanged = (targetDeviceID != 0 && currentDeviceID != targetDeviceID)
 
         if deviceChanged {
-            print("AudioCaptureManager: Device changed from \(currentDeviceID) to \(targetDeviceID), resetting engine")
+            logger.info("Device changed from \(currentDeviceID) to \(targetDeviceID), resetting engine")
             audioEngine.inputNode.removeTap(onBus: 0)
             isTapInstalled = false
             audioEngine.reset()
@@ -552,9 +566,9 @@ final class AudioCaptureManager {
             try audioEngine.start()
             isRecording = true
             recordingStartTime = Date()
-            print("AudioCaptureManager: Started recording")
+            logger.info("Started recording")
         } catch {
-            print("AudioCaptureManager: Failed to start engine: \(error.localizedDescription), attempting reset...")
+            logger.warning("Failed to start engine: \(error.localizedDescription), attempting reset...")
             audioEngine.inputNode.removeTap(onBus: 0)
             isTapInstalled = false
             audioEngine.reset()
@@ -567,7 +581,7 @@ final class AudioCaptureManager {
                 try audioEngine.start()
                 isRecording = true
                 recordingStartTime = Date()
-                print("AudioCaptureManager: Started recording after reset")
+                logger.info("Started recording after reset")
             } catch let fallbackError {
                 audioEngine.inputNode.removeTap(onBus: 0)
                 isTapInstalled = false
@@ -590,10 +604,11 @@ final class AudioCaptureManager {
         isTapInstalled = false
         isRecording = false
         audioLock.withLock { resamplingConverter = nil }
+        reusableOutputBuffer = nil
         accumulateBuffers = true
 
         let duration = recordingStartTime.map { Date().timeIntervalSince($0) } ?? 0
-        print("AudioCaptureManager: Stopped recording, duration: \(duration)s")
+        logger.info("Stopped recording, duration: \(duration)s")
 
         // Snapshot and clear buffers under lock, then process outside lock
         let bufferSnapshot = audioLock.withLock {
@@ -635,7 +650,7 @@ final class AudioCaptureManager {
         // start() succeeds but the tap callback never fires.
         _ = audioEngine.inputNode
         applySelectedDevice()
-        print("AudioCaptureManager: Engine pre-warmed successfully")
+        logger.debug("Engine pre-warmed successfully")
     }
 
     /// Cancel recording without saving
@@ -649,6 +664,7 @@ final class AudioCaptureManager {
             previousBands = [Float](repeating: 0, count: 6)
         }
         audioLock.withLock { resamplingConverter = nil }
+        reusableOutputBuffer = nil
         accumulateBuffers = true
 
         DispatchQueue.main.async {
@@ -656,7 +672,7 @@ final class AudioCaptureManager {
             AppState.shared.audioFrequencyBands = [Float](repeating: 0, count: 6)
         }
 
-        print("AudioCaptureManager: Recording cancelled")
+        logger.info("Recording cancelled")
     }
 
     // MARK: - Private Methods
@@ -754,7 +770,7 @@ final class AudioCaptureManager {
                 ]
             )
             try audioFile.write(from: finalBuffer)
-            print("AudioCaptureManager: Saved audio to \(fileURL.path)")
+            logger.debug("Saved audio to \(fileURL.path)")
             return fileURL
         } catch {
             throw AudioCaptureError.fileWriteFailed(error)
@@ -762,34 +778,30 @@ final class AudioCaptureManager {
     }
 
     private func computeFrequencyBands(from samples: [Float], sampleRate: Double) -> [Float] {
-        let fftSize = 1024
-
         if fftSetup == nil {
             fftSetup = vDSP_create_fftsetup(fftLog2N, FFTRadix(kFFTRadix2))
         }
         guard let setup = fftSetup else { return [Float](repeating: 0, count: 6) }
 
-        // Zero-pad or truncate to fftSize
-        var input = [Float](repeating: 0, count: fftSize)
+        // Zero-fill and copy samples into pre-allocated input buffer
+        vDSP_vclr(&fftInput, 1, vDSP_Length(fftSize))
         let copyCount = min(samples.count, fftSize)
-        input[0..<copyCount] = samples[0..<copyCount]
+        fftInput[0..<copyCount] = samples[0..<copyCount]
 
-        // Apply Hann window to reduce spectral leakage
-        var window = [Float](repeating: 0, count: fftSize)
-        vDSP_hann_window(&window, vDSP_Length(fftSize), Int32(vDSP_HANN_NORM))
-        vDSP_vmul(input, 1, window, 1, &input, 1, vDSP_Length(fftSize))
+        // Apply pre-computed Hann window
+        vDSP_vmul(fftInput, 1, fftWindow, 1, &fftInput, 1, vDSP_Length(fftSize))
+
+        // Zero-fill split complex arrays
+        vDSP_vclr(&fftReal, 1, vDSP_Length(fftSize / 2))
+        vDSP_vclr(&fftImag, 1, vDSP_Length(fftSize / 2))
 
         // Pack real array into split complex and run FFT
-        var realPart = [Float](repeating: 0, count: fftSize / 2)
-        var imagPart = [Float](repeating: 0, count: fftSize / 2)
-        var magnitudes = [Float](repeating: 0, count: fftSize / 2)
-
-        realPart.withUnsafeMutableBufferPointer { realBuf in
-            imagPart.withUnsafeMutableBufferPointer { imagBuf in
+        fftReal.withUnsafeMutableBufferPointer { realBuf in
+            fftImag.withUnsafeMutableBufferPointer { imagBuf in
                 var split = DSPSplitComplex(realp: realBuf.baseAddress!, imagp: imagBuf.baseAddress!)
 
                 // Interleaved → split complex
-                input.withUnsafeBytes { rawPtr in
+                fftInput.withUnsafeBytes { rawPtr in
                     rawPtr.withMemoryRebound(to: DSPComplex.self) { complexPtr in
                         vDSP_ctoz(complexPtr.baseAddress!, 2, &split, 1, vDSP_Length(fftSize / 2))
                     }
@@ -799,13 +811,13 @@ final class AudioCaptureManager {
                 vDSP_fft_zrip(setup, &split, 1, fftLog2N, FFTDirection(FFT_FORWARD))
 
                 // Compute magnitudes (N/2 bins = 0 Hz to Nyquist)
-                vDSP_zvabs(&split, 1, &magnitudes, 1, vDSP_Length(fftSize / 2))
+                vDSP_zvabs(&split, 1, &fftMagnitudes, 1, vDSP_Length(fftSize / 2))
             }
         }
 
         // Normalize by FFT size
         var scale = Float(1.0) / Float(fftSize)
-        vDSP_vsmul(magnitudes, 1, &scale, &magnitudes, 1, vDSP_Length(fftSize / 2))
+        vDSP_vsmul(fftMagnitudes, 1, &scale, &fftMagnitudes, 1, vDSP_Length(fftSize / 2))
 
         // 6 speech-tuned frequency band boundaries (Hz)
         // Adjusted for 16kHz sample rate (max 8kHz) and speech characteristics
@@ -817,38 +829,43 @@ final class AudioCaptureManager {
         // dB floor: -45 dB maps to 0, 0 dB maps to 1 (middle ground for sensitivity)
         let dbFloor: Float = -45.0
 
-        let lockedPreviousBands = audioLock.withLock { previousBands }
-        var bands = [Float](repeating: 0, count: 6)
-        magnitudes.withUnsafeBufferPointer { magBuf in
-            for i in 0..<6 {
-                let lowBin = max(1, Int(boundaries[i] / binWidth))
-                let highBin = min(fftSize / 2 - 1, Int(boundaries[i + 1] / binWidth))
-                guard lowBin < highBin else { continue }
+        // Single lock for previousBands read + write
+        let bands = audioLock.withLock { () -> [Float] in
+            var result = [Float](repeating: 0, count: 6)
+            fftMagnitudes.withUnsafeBufferPointer { magBuf in
+                for i in 0..<6 {
+                    let lowBin = max(1, Int(boundaries[i] / binWidth))
+                    let highBin = min(fftSize / 2 - 1, Int(boundaries[i + 1] / binWidth))
+                    guard lowBin < highBin else { continue }
 
-                var rms: Float = 0
-                vDSP_rmsqv(magBuf.baseAddress!.advanced(by: lowBin), 1, &rms, vDSP_Length(highBin - lowBin))
+                    var rms: Float = 0
+                    vDSP_rmsqv(magBuf.baseAddress!.advanced(by: lowBin), 1, &rms, vDSP_Length(highBin - lowBin))
 
-                let db = 20.0 * log10(max(rms, 1e-10))
-                let normalized = max(0, min(1, (db - dbFloor) / (-dbFloor))) * sensitivities[i]
-                let target = min(1, normalized)
+                    let db = 20.0 * log10(max(rms, 1e-10))
+                    let normalized = max(0, min(1, (db - dbFloor) / (-dbFloor))) * sensitivities[i]
+                    let target = min(1, normalized)
 
-                // Asymmetric smoothing (fast attack, slow decay)
-                let previous = lockedPreviousBands[i]
-                if target > previous {
-                    // Fast attack (snappy)
-                    bands[i] = previous + (target - previous) * 0.95
-                } else {
-                    // Smooth decay (fluid but returns to 0)
-                    bands[i] = previous + (target - previous) * 0.25
+                    // Asymmetric smoothing (fast attack, slow decay)
+                    let previous = previousBands[i]
+                    if target > previous {
+                        result[i] = previous + (target - previous) * 0.95
+                    } else {
+                        result[i] = previous + (target - previous) * 0.25
+                    }
                 }
             }
-        }
-
-        audioLock.withLock {
-            previousBands = bands
+            previousBands = result
+            return result
         }
 
         return bands
+    }
+
+    /// Silence action determined under lock, dispatched outside lock.
+    private enum SilenceAction {
+        case none
+        case warn
+        case stop
     }
 
     private func updateAudioLevel(buffer: AVAudioPCMBuffer) {
@@ -867,81 +884,76 @@ final class AudioCaptureManager {
         // Convert to 0-1 range with some scaling for visualization
         let normalizedLevel = min(rms * 3, 1.0)
 
-        let sampleRate = buffer.format.sampleRate
-        let bands = computeFrequencyBands(from: channelDataValueArray, sampleRate: sampleRate)
-
+        // Pre-compute silence detection inputs (no lock needed)
         let now = Date()
-        let shouldUpdateLevel = audioLock.withLock {
+        let settings = SettingsManager.shared
+        let autoStopEnabled = settings.enableAutoStopOnSilence
+        let rmsDB: Double = rms > 0 ? 20.0 * log10(Double(rms)) : -100.0
+        let isSilent = autoStopEnabled && rmsDB < settings.silenceThresholdDB
+
+        // Single lock acquisition for all shared state
+        let (shouldUpdateLevel, silenceAction) = audioLock.withLock { () -> (Bool, SilenceAction) in
+            // Throttle check for UI update
+            var update = false
             if now.timeIntervalSince(lastAudioLevelUpdate) >= 1.0 / 60.0 {
                 lastAudioLevelUpdate = now
-                return true
+                update = true
             }
-            return false
+
+            // Silence detection state machine
+            guard autoStopEnabled else {
+                silenceStartTime = nil
+                silenceWarningTriggered = false
+                return (update, .none)
+            }
+
+            var action: SilenceAction = .none
+            if isSilent {
+                if silenceStartTime == nil {
+                    silenceStartTime = Date()
+                    silenceWarningTriggered = false
+                }
+                if let startTime = silenceStartTime {
+                    let silenceDuration = now.timeIntervalSince(startTime)
+                    let thresholdDuration = settings.silenceDurationSeconds
+
+                    if silenceDuration >= thresholdDuration {
+                        action = .stop
+                        silenceStartTime = nil
+                        silenceWarningTriggered = false
+                    } else if !silenceWarningTriggered && silenceDuration >= thresholdDuration * silenceWarningRatio {
+                        silenceWarningTriggered = true
+                        action = .warn
+                    }
+                }
+            } else {
+                silenceStartTime = nil
+                silenceWarningTriggered = false
+            }
+
+            return (update, action)
         }
+
+        // Dispatch actions outside the lock
         if shouldUpdateLevel {
+            let sampleRate = buffer.format.sampleRate
+            let bands = computeFrequencyBands(from: channelDataValueArray, sampleRate: sampleRate)
             DispatchQueue.main.async {
                 AppState.shared.audioLevel = normalizedLevel
                 AppState.shared.audioFrequencyBands = bands
             }
         }
 
-        // Silence detection
-        let settings = SettingsManager.shared
-
-        guard settings.enableAutoStopOnSilence else {
-            // Reset silence tracking when disabled
-            audioLock.withLock {
-                silenceStartTime = nil
-                silenceWarningTriggered = false
+        switch silenceAction {
+        case .none:
+            break
+        case .warn:
+            DispatchQueue.main.async { [weak self] in
+                self?.onSilenceWarning?()
             }
-            return
-        }
-
-        // Convert RMS to dB: 20 * log10(rms)
-        // Avoid log of zero by using a minimum value
-        let rmsDB: Double
-        if rms > 0 {
-            rmsDB = 20.0 * log10(Double(rms))
-        } else {
-            rmsDB = -100.0 // Very quiet
-        }
-
-        let isSilent = rmsDB < settings.silenceThresholdDB
-
-        audioLock.withLock {
-            if isSilent {
-                // Start or continue silence tracking
-                if silenceStartTime == nil {
-                    silenceStartTime = Date()
-                    silenceWarningTriggered = false
-                }
-
-                if let startTime = silenceStartTime {
-                    let silenceDuration = Date().timeIntervalSince(startTime)
-                    let thresholdDuration = settings.silenceDurationSeconds
-
-                    // Check for warning (75% of threshold)
-                    if !silenceWarningTriggered && silenceDuration >= thresholdDuration * silenceWarningRatio {
-                        silenceWarningTriggered = true
-                        DispatchQueue.main.async { [weak self] in
-                            self?.onSilenceWarning?()
-                        }
-                    }
-
-                    // Check for auto-stop threshold
-                    if silenceDuration >= thresholdDuration {
-                        DispatchQueue.main.async { [weak self] in
-                            self?.onSilenceThresholdReached?()
-                        }
-                        // Reset to prevent repeated triggers
-                        silenceStartTime = nil
-                        silenceWarningTriggered = false
-                    }
-                }
-            } else {
-                // Speech detected, reset silence tracking
-                silenceStartTime = nil
-                silenceWarningTriggered = false
+        case .stop:
+            DispatchQueue.main.async { [weak self] in
+                self?.onSilenceThresholdReached?()
             }
         }
     }

@@ -70,6 +70,9 @@ final class SystemAudioCaptureManager: NSObject, SCStreamOutput, SCStreamDelegat
     /// Resampling converter for producing 16kHz mono from SCStream output
     private var resamplingConverter: AVAudioConverter?
 
+    /// Reusable output buffer for the resampling converter.
+    private var reusableOutputBuffer: AVAudioPCMBuffer?
+
     /// Serial queue for audio buffer processing
     private let audioQueue = DispatchQueue(label: "com.voxnotch.systemaudio", qos: .userInteractive)
 
@@ -100,7 +103,19 @@ final class SystemAudioCaptureManager: NSObject, SCStreamOutput, SCStreamDelegat
 
     /// FFT setup for frequency analysis
     private let fftLog2N: vDSP_Length = 10 // 2^10 = 1024
+    private let fftSize = 1024
     private var fftSetup: FFTSetup?
+
+    // Pre-allocated FFT working arrays
+    private var fftInput = [Float](repeating: 0, count: 1024)
+    private var fftWindow: [Float] = {
+        var w = [Float](repeating: 0, count: 1024)
+        vDSP_hann_window(&w, vDSP_Length(1024), Int32(vDSP_HANN_NORM))
+        return w
+    }()
+    private var fftReal = [Float](repeating: 0, count: 512)
+    private var fftImag = [Float](repeating: 0, count: 512)
+    private var fftMagnitudes = [Float](repeating: 0, count: 512)
 
     // MARK: - Initialization
 
@@ -114,7 +129,7 @@ final class SystemAudioCaptureManager: NSObject, SCStreamOutput, SCStreamDelegat
     /// - Throws: SystemAudioCaptureError if capture cannot start
     func startRecording() async throws {
         if isRecording {
-            print("SystemAudioCaptureManager: Already recording, stopping previous stream")
+            logger.debug("Already recording, stopping previous stream")
             cancelRecording()
         }
 
@@ -132,7 +147,7 @@ final class SystemAudioCaptureManager: NSObject, SCStreamOutput, SCStreamDelegat
         do {
             content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
         } catch {
-            print("SystemAudioCaptureManager: Screen recording permission denied: \(error)")
+            logger.error("Screen recording permission denied: \(error.localizedDescription)")
             throw SystemAudioCaptureError.screenRecordingPermissionDenied
         }
 
@@ -168,14 +183,14 @@ final class SystemAudioCaptureManager: NSObject, SCStreamOutput, SCStreamDelegat
         do {
             try await newStream.startCapture()
         } catch {
-            print("SystemAudioCaptureManager: Failed to start capture: \(error)")
+            logger.error("Failed to start capture: \(error.localizedDescription)")
             throw SystemAudioCaptureError.streamStartFailed(error)
         }
 
         stream = newStream
         isRecording = true
         recordingStartTime = Date()
-        print("SystemAudioCaptureManager: Started recording system audio")
+        logger.info("Started recording system audio")
     }
 
     /// Stop recording and save to file
@@ -192,6 +207,7 @@ final class SystemAudioCaptureManager: NSObject, SCStreamOutput, SCStreamDelegat
         audioQueue.sync {
             self.isRecording = false
             self.resamplingConverter = nil
+            self.reusableOutputBuffer = nil
         }
 
         // Fire-and-forget stream cleanup (safe — we already drained the queue above)
@@ -200,7 +216,7 @@ final class SystemAudioCaptureManager: NSObject, SCStreamOutput, SCStreamDelegat
         }
 
         let duration = recordingStartTime.map { Date().timeIntervalSince($0) } ?? 0
-        print("SystemAudioCaptureManager: Stopped recording, duration: \(duration)s")
+        logger.info("Stopped recording, duration: \(duration)s")
 
         guard !recordedBuffers.isEmpty else {
             throw SystemAudioCaptureError.noAudioRecorded
@@ -233,6 +249,7 @@ final class SystemAudioCaptureManager: NSObject, SCStreamOutput, SCStreamDelegat
             self.isRecording = false
             self.recordedBuffers.removeAll()
             self.resamplingConverter = nil
+            self.reusableOutputBuffer = nil
             self.previousBands = [Float](repeating: 0, count: 6)
             self.silenceStartTime = nil
             self.silenceWarningTriggered = false
@@ -247,7 +264,7 @@ final class SystemAudioCaptureManager: NSObject, SCStreamOutput, SCStreamDelegat
             AppState.shared.audioFrequencyBands = [Float](repeating: 0, count: 6)
         }
 
-        print("SystemAudioCaptureManager: Recording cancelled")
+        logger.info("Recording cancelled")
     }
 
     /// Clean up a recorded audio file
@@ -280,7 +297,12 @@ final class SystemAudioCaptureManager: NSObject, SCStreamOutput, SCStreamDelegat
         let ratio = targetSampleRate / pcmBuffer.format.sampleRate
         let outputFrameCapacity = AVAudioFrameCount(Double(pcmBuffer.frameLength) * ratio) + 1
 
-        guard let outputBuffer = AVAudioPCMBuffer(pcmFormat: resampledFormat, frameCapacity: outputFrameCapacity) else { return }
+        // Lazily create or grow the reusable output buffer
+        if reusableOutputBuffer == nil || reusableOutputBuffer!.frameCapacity < outputFrameCapacity {
+            reusableOutputBuffer = AVAudioPCMBuffer(pcmFormat: resampledFormat, frameCapacity: outputFrameCapacity)
+        }
+        guard let outputBuffer = reusableOutputBuffer else { return }
+        outputBuffer.frameLength = 0
 
         var error: NSError?
         var consumed = false
@@ -294,31 +316,26 @@ final class SystemAudioCaptureManager: NSObject, SCStreamOutput, SCStreamDelegat
             return pcmBuffer
         }
 
-        guard error == nil, outputBuffer.frameLength > 0, let channelData = outputBuffer.floatChannelData else { return }
+        let frameCount = Int(outputBuffer.frameLength)
+        guard error == nil, frameCount > 0, let outputChannelData = outputBuffer.floatChannelData else { return }
 
-        let samples = Array(UnsafeBufferPointer(start: channelData[0], count: Int(outputBuffer.frameLength)))
-
-        // Create buffer for accumulation
-        guard let resampledBuffer = AVAudioPCMBuffer(pcmFormat: resampledFormat, frameCapacity: AVAudioFrameCount(samples.count)) else { return }
-        resampledBuffer.frameLength = AVAudioFrameCount(samples.count)
-        if let bufChannelData = resampledBuffer.floatChannelData {
-            bufChannelData[0].update(from: samples, count: samples.count)
+        // Create resampledBuffer and copy directly from outputBuffer (skip Array intermediate)
+        guard let resampledBuffer = AVAudioPCMBuffer(pcmFormat: resampledFormat, frameCapacity: AVAudioFrameCount(frameCount)) else { return }
+        resampledBuffer.frameLength = AVAudioFrameCount(frameCount)
+        if let destChannelData = resampledBuffer.floatChannelData {
+            destChannelData[0].update(from: outputChannelData[0], count: frameCount)
         }
 
         recordedBuffers.append(resampledBuffer)
 
         // Update audio level for visualization
         updateAudioLevel(buffer: resampledBuffer)
-
-        // Stream callbacks
-        onAudioSamples?(samples)
-        onResampledAudioSamples?(samples)
     }
 
     // MARK: - SCStreamDelegate
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
-        print("SystemAudioCaptureManager: Stream stopped with error: \(error)")
+        logger.error("Stream stopped with error: \(error.localizedDescription)")
         if isRecording {
             isRecording = false
             DispatchQueue.main.async {
@@ -377,7 +394,7 @@ final class SystemAudioCaptureManager: NSObject, SCStreamOutput, SCStreamDelegat
                 ]
             )
             try audioFile.write(from: combinedBuffer)
-            print("SystemAudioCaptureManager: Saved audio to \(fileURL.path)")
+            logger.debug("Saved audio to \(fileURL.path)")
             return fileURL
         } catch {
             throw SystemAudioCaptureError.fileWriteFailed(error)
@@ -399,12 +416,11 @@ final class SystemAudioCaptureManager: NSObject, SCStreamOutput, SCStreamDelegat
         let rms = sqrt(channelDataValueArray.map { $0 * $0 }.reduce(0, +) / Float(buffer.frameLength))
         let normalizedLevel = min(rms * 3, 1.0)
 
-        let sampleRate = buffer.format.sampleRate
-        let bands = computeFrequencyBands(from: channelDataValueArray, sampleRate: sampleRate)
-
         let now = Date()
         if now.timeIntervalSince(lastAudioLevelUpdate) >= 1.0 / 60.0 {
             lastAudioLevelUpdate = now
+            let sampleRate = buffer.format.sampleRate
+            let bands = computeFrequencyBands(from: channelDataValueArray, sampleRate: sampleRate)
             DispatchQueue.main.async {
                 AppState.shared.audioLevel = normalizedLevel
                 AppState.shared.audioFrequencyBands = bands
@@ -461,42 +477,40 @@ final class SystemAudioCaptureManager: NSObject, SCStreamOutput, SCStreamDelegat
     }
 
     private func computeFrequencyBands(from samples: [Float], sampleRate: Double) -> [Float] {
-        let fftSize = 1024
-
         if fftSetup == nil {
             fftSetup = vDSP_create_fftsetup(fftLog2N, FFTRadix(kFFTRadix2))
         }
         guard let setup = fftSetup else { return [Float](repeating: 0, count: 6) }
 
-        var input = [Float](repeating: 0, count: fftSize)
+        // Zero-fill and copy samples into pre-allocated input buffer
+        vDSP_vclr(&fftInput, 1, vDSP_Length(fftSize))
         let copyCount = min(samples.count, fftSize)
-        input[0..<copyCount] = samples[0..<copyCount]
+        fftInput[0..<copyCount] = samples[0..<copyCount]
 
-        var window = [Float](repeating: 0, count: fftSize)
-        vDSP_hann_window(&window, vDSP_Length(fftSize), Int32(vDSP_HANN_NORM))
-        vDSP_vmul(input, 1, window, 1, &input, 1, vDSP_Length(fftSize))
+        // Apply pre-computed Hann window
+        vDSP_vmul(fftInput, 1, fftWindow, 1, &fftInput, 1, vDSP_Length(fftSize))
 
-        var realPart = [Float](repeating: 0, count: fftSize / 2)
-        var imagPart = [Float](repeating: 0, count: fftSize / 2)
-        var magnitudes = [Float](repeating: 0, count: fftSize / 2)
+        // Zero-fill split complex arrays
+        vDSP_vclr(&fftReal, 1, vDSP_Length(fftSize / 2))
+        vDSP_vclr(&fftImag, 1, vDSP_Length(fftSize / 2))
 
-        realPart.withUnsafeMutableBufferPointer { realBuf in
-            imagPart.withUnsafeMutableBufferPointer { imagBuf in
+        fftReal.withUnsafeMutableBufferPointer { realBuf in
+            fftImag.withUnsafeMutableBufferPointer { imagBuf in
                 var split = DSPSplitComplex(realp: realBuf.baseAddress!, imagp: imagBuf.baseAddress!)
 
-                input.withUnsafeBytes { rawPtr in
+                fftInput.withUnsafeBytes { rawPtr in
                     rawPtr.withMemoryRebound(to: DSPComplex.self) { complexPtr in
                         vDSP_ctoz(complexPtr.baseAddress!, 2, &split, 1, vDSP_Length(fftSize / 2))
                     }
                 }
 
                 vDSP_fft_zrip(setup, &split, 1, fftLog2N, FFTDirection(FFT_FORWARD))
-                vDSP_zvabs(&split, 1, &magnitudes, 1, vDSP_Length(fftSize / 2))
+                vDSP_zvabs(&split, 1, &fftMagnitudes, 1, vDSP_Length(fftSize / 2))
             }
         }
 
         var scale = Float(1.0) / Float(fftSize)
-        vDSP_vsmul(magnitudes, 1, &scale, &magnitudes, 1, vDSP_Length(fftSize / 2))
+        vDSP_vsmul(fftMagnitudes, 1, &scale, &fftMagnitudes, 1, vDSP_Length(fftSize / 2))
 
         let boundaries: [Double] = [100, 300, 600, 1000, 2000, 3500, 6000]
         let binWidth = sampleRate / Double(fftSize)
@@ -504,7 +518,7 @@ final class SystemAudioCaptureManager: NSObject, SCStreamOutput, SCStreamDelegat
         let dbFloor: Float = -45.0
 
         var bands = [Float](repeating: 0, count: 6)
-        magnitudes.withUnsafeBufferPointer { magBuf in
+        fftMagnitudes.withUnsafeBufferPointer { magBuf in
             for i in 0..<6 {
                 let lowBin = max(1, Int(boundaries[i] / binWidth))
                 let highBin = min(fftSize / 2 - 1, Int(boundaries[i + 1] / binWidth))

@@ -8,6 +8,7 @@
 import SwiftUI
 import AppKit
 import CoreAudio
+import os.log
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
@@ -297,7 +298,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             do {
                 try await DatabaseManager.shared.initialize()
             } catch {
-                print("Failed to initialize database: \(error.localizedDescription)")
+                Logger(subsystem: "com.voxnotch", category: "AppDelegate").error("Failed to initialize database: \(error.localizedDescription)")
             }
         }
     }

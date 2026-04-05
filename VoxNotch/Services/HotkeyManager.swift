@@ -8,6 +8,7 @@
 import Foundation
 import AppKit
 import Carbon.HIToolbox
+import os.log
 
 /// Manages global hotkey registration and detection using CGEvent tap
 final class HotkeyManager {
@@ -24,6 +25,8 @@ final class HotkeyManager {
     typealias HotkeyCallback = (HotkeyEvent) -> Void
 
     // MARK: - Properties
+
+    private let logger = Logger(subsystem: "com.voxnotch", category: "HotkeyManager")
 
     static let shared = HotkeyManager()
 
@@ -88,7 +91,7 @@ final class HotkeyManager {
     private func loadFromSettings() {
         let flags = SettingsManager.shared.hotkeyModifierFlags
         modifierFlags = CGEventFlags(rawValue: flags)
-        print("HotkeyManager: Loaded modifiers from settings: \(modifierFlags.modifierDescription)")
+        logger.debug("Loaded modifiers from settings: \(self.modifierFlags.modifierDescription)")
     }
 
     /// Setup observer for hotkey configuration changes
@@ -116,9 +119,9 @@ final class HotkeyManager {
         let isTrusted = AXIsProcessTrustedWithOptions(options)
 
         if isTrusted {
-            print("HotkeyManager: Accessibility permission already granted")
+            logger.debug("Accessibility permission already granted")
         } else {
-            print("HotkeyManager: Accessibility permission requested - user needs to grant in System Settings")
+            logger.info("Accessibility permission requested - user needs to grant in System Settings")
         }
 
         return isTrusted
@@ -129,12 +132,12 @@ final class HotkeyManager {
     @discardableResult
     func startListening() -> Bool {
         guard hasAccessibilityPermission else {
-            print("HotkeyManager: Accessibility permission not granted")
+            logger.info("Accessibility permission not granted")
             return false
         }
 
         guard eventTap == nil else {
-            print("HotkeyManager: Already listening")
+            logger.debug("Already listening")
             return true
         }
 
@@ -158,7 +161,7 @@ final class HotkeyManager {
             callback: callback,
             userInfo: Unmanaged.passUnretained(self).toOpaque()
         ) else {
-            print("HotkeyManager: Failed to create event tap")
+            logger.error("Failed to create event tap")
             return false
         }
 
@@ -171,7 +174,7 @@ final class HotkeyManager {
         // Enable the event tap
         CGEvent.tapEnable(tap: tap, enable: true)
 
-        print("HotkeyManager: Started listening for hotkey events (modifiers: \(modifierFlags.modifierDescription), raw: \(modifierFlags.rawValue))")
+        logger.info("Started listening (modifiers: \(self.modifierFlags.modifierDescription), raw: \(self.modifierFlags.rawValue))")
         return true
     }
 
@@ -188,14 +191,14 @@ final class HotkeyManager {
         }
 
         isHotkeyPressed = false
-        print("HotkeyManager: Stopped listening for hotkey events")
+        logger.info("Stopped listening")
     }
 
     /// Update the hotkey modifier configuration
     /// - Parameter modifiers: The new modifier flags to use
     func updateModifiers(_ modifiers: CGEventFlags) {
         modifierFlags = modifiers
-        print("HotkeyManager: Updated modifiers to \(modifiers)")
+        logger.debug("Updated modifiers to \(modifiers.modifierDescription)")
     }
 
     // MARK: - Private Methods
@@ -209,7 +212,9 @@ final class HotkeyManager {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             if let tap = eventTap {
                 CGEvent.tapEnable(tap: tap, enable: true)
+                #if DEBUG
                 print("HotkeyManager: Re-enabled event tap (disabled by system)")
+                #endif
             }
             return Unmanaged.passRetained(event)
         }
@@ -264,10 +269,11 @@ final class HotkeyManager {
         let targetMask = modifierFlags.intersection(relevantMask).rawValue
         let hotkeyActive = filteredFlags.rawValue == targetMask && filteredFlags.rawValue != 0
 
-        // Debug logging
+        #if DEBUG
         if hotkeyActive != isHotkeyPressed {
             print("HotkeyManager: State transition - Active: \(hotkeyActive), WasPressed: \(isHotkeyPressed), Flags: \(filteredFlags.rawValue), Target: \(targetMask)")
         }
+        #endif
 
         if hotkeyActive && !isHotkeyPressed {
             // Hotkey just pressed
@@ -285,7 +291,9 @@ final class HotkeyManager {
             // SAFETY CHECK: If we think it's pressed but the flags don't match, force a release
             // This handles cases where we might have missed a flagsChanged event
             if filteredFlags.rawValue != targetMask {
-                print("HotkeyManager: Safety trigger - flags changed while pressed, but no longer match target. Forcing keyUp.")
+                #if DEBUG
+                print("HotkeyManager: Safety trigger - flags changed while pressed, forcing keyUp")
+                #endif
                 isHotkeyPressed = false
                 DispatchQueue.main.async { [weak self] in
                     self?.onHotkeyEvent?(.keyUp)

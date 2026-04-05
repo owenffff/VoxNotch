@@ -7,6 +7,7 @@
 
 import SwiftUI
 import GRDB
+import os.log
 
 // MARK: - Transcription History View
 
@@ -163,7 +164,7 @@ struct HistoryWindowView: View {
         selectedTranscription = nil
       }
     } catch {
-      print("HistoryWindowView: Failed to delete transcription: \(error)")
+      Logger(subsystem: "com.voxnotch", category: "HistoryWindowView").error("Failed to delete transcription: \(error.localizedDescription)")
     }
   }
 

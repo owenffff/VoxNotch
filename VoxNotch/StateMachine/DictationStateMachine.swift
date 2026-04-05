@@ -504,7 +504,7 @@ final class DictationStateMachine {
     // MARK: - Watchdog
 
     private func startWatchdog() {
-        watchdogTimer = Timer.scheduledTimer(withTimeInterval: 600.0, repeats: false) { [weak self] _ in
+        watchdogTimer = Timer.scheduledTimer(withTimeInterval: 180.0, repeats: false) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.onWatchdogFired?()
             }

@@ -10,6 +10,7 @@ import ServiceManagement
 import AVFoundation
 import CoreAudio
 import UniformTypeIdentifiers
+import os.log
 import GRDB
 import os.log
 
@@ -355,7 +356,7 @@ struct HistoryTab: View {
           transcriptionCount = 0
         }
       } catch {
-        print("SettingsView: Failed to clear history: \(error)")
+        Logger(subsystem: "com.voxnotch", category: "SettingsView").error("Failed to clear history: \(error.localizedDescription)")
       }
     }
   }
