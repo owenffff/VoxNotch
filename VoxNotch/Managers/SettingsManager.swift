@@ -60,6 +60,9 @@ final class SettingsManager {
     static let promptTemplate = "promptTemplate"
     static let customPrompt = "customPrompt"
 
+    /// Voice Activity Detection
+    static let useVADSpeechGate = "useVADSpeechGate"
+
     /// Silence Detection
     static let enableAutoStopOnSilence = "enableAutoStopOnSilence"
     static let silenceThresholdDB = "silenceThresholdDB"
@@ -216,6 +219,13 @@ final class SettingsManager {
 
   var customPrompt: String {
     didSet { save(customPrompt, forKey: Keys.customPrompt) }
+  }
+
+  // MARK: - Voice Activity Detection
+
+  /// Use Silero VAD instead of RMS energy for pre-transcription speech detection
+  var useVADSpeechGate: Bool {
+    didSet { save(useVADSpeechGate, forKey: Keys.useVADSpeechGate) }
   }
 
   // MARK: - Silence Detection Settings
@@ -410,6 +420,9 @@ final class SettingsManager {
     self.promptTemplate = defaults.string(forKey: Keys.promptTemplate) ?? "formal"
     self.customPrompt = defaults.string(forKey: Keys.customPrompt) ?? PromptTemplate.formal.prompt
 
+    /// Voice Activity Detection
+    self.useVADSpeechGate = defaults.object(forKey: Keys.useVADSpeechGate) as? Bool ?? false
+
     /// Silence Detection
     self.enableAutoStopOnSilence = defaults.bool(forKey: Keys.enableAutoStopOnSilence)
     self.silenceThresholdDB = defaults.object(forKey: Keys.silenceThresholdDB) as? Double ?? -50.0
@@ -497,6 +510,7 @@ final class SettingsManager {
       Keys.restoreClipboard, Keys.useClipboardForOutput,
       Keys.llmProvider, Keys.llmEndpointURL, Keys.llmModel,
       Keys.promptTemplate, Keys.customPrompt,
+      Keys.useVADSpeechGate,
       Keys.enableAutoStopOnSilence, Keys.silenceThresholdDB, Keys.silenceDurationSeconds,
       Keys.selectedMicrophoneDeviceID,
       Keys.asrEngine, Keys.mlxAudioModel, Keys.speechModel,
@@ -529,6 +543,7 @@ final class SettingsManager {
     llmModel = "llama3.2"
     promptTemplate = "formal"
     customPrompt = PromptTemplate.formal.prompt
+    useVADSpeechGate = false
     enableAutoStopOnSilence = false
     silenceThresholdDB = -50.0
     silenceDurationSeconds = 3.0

@@ -56,9 +56,15 @@ final class FluidAudioProvider: TranscriptionProvider, @unchecked Sendable {
       throw FluidAudioError.modelNotLoaded
     }
 
-    // Check if audio contains actual speech energy (not just silence/noise)
-    guard hasSignificantAudio(audioURL: audioURL) else {
-      throw TranscriptionError.noSpeechDetected
+    // Check if audio contains actual speech (VAD) or energy (RMS fallback)
+    if SettingsManager.shared.useVADSpeechGate {
+      guard try await VadGate.shared.containsSpeech(audioURL: audioURL) else {
+        throw TranscriptionError.noSpeechDetected
+      }
+    } else {
+      guard hasSignificantAudio(audioURL: audioURL) else {
+        throw TranscriptionError.noSpeechDetected
+      }
     }
 
     // Ensure audio meets FluidAudio's 1-second minimum, pad with silence if needed

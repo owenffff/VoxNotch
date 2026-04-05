@@ -14,6 +14,10 @@ struct RecordingTab: View {
   @Bindable private var settings = SettingsManager.shared
   @State private var hotkeyError: String?
 
+  // VAD state
+  @State private var isDownloadingVAD = false
+  @State private var vadError: String?
+
   // Microphone test state
   @State private var isTesting = false
   @State private var isPlaying = false
@@ -101,6 +105,42 @@ struct RecordingTab: View {
         Text("Microphone")
       }
 
+      // MARK: Speech Detection
+      Section {
+        Toggle(isOn: Binding(
+          get: { settings.useVADSpeechGate },
+          set: { newValue in
+            if newValue {
+              enableVAD()
+            } else {
+              settings.useVADSpeechGate = false
+              vadError = nil
+            }
+          }
+        )) {
+          HStack {
+            InfoLabel(title: "Use voice activity detection", tooltip: "Uses a neural model (Silero VAD) to detect speech more accurately than volume-based detection. Requires a one-time ~2MB model download.")
+            if isDownloadingVAD {
+              ProgressView()
+                .controlSize(.small)
+            }
+          }
+        }
+        .disabled(isDownloadingVAD)
+
+        if let vadError {
+          Text(vadError)
+            .font(.caption)
+            .foregroundStyle(.red)
+        }
+      } header: {
+        Text("Speech Detection")
+      } footer: {
+        Text(settings.useVADSpeechGate
+          ? "Using neural voice activity detection to filter non-speech audio before transcription."
+          : "Using volume threshold to filter silent audio before transcription.")
+      }
+
       // MARK: Hotkey
       Section {
         LabeledContent("Recording Hotkey") {
@@ -161,6 +201,33 @@ struct RecordingTab: View {
     }
     .onDisappear {
       cleanupTest()
+    }
+  }
+
+  // MARK: - VAD Toggle
+
+  private func enableVAD() {
+    if VadGate.shared.isModelAvailable {
+      settings.useVADSpeechGate = true
+      return
+    }
+
+    isDownloadingVAD = true
+    vadError = nil
+    Task {
+      do {
+        try await VadGate.shared.ensureModelReady()
+        await MainActor.run {
+          settings.useVADSpeechGate = true
+          isDownloadingVAD = false
+        }
+      } catch {
+        await MainActor.run {
+          settings.useVADSpeechGate = false
+          isDownloadingVAD = false
+          vadError = "Failed to download VAD model: \(error.localizedDescription)"
+        }
+      }
     }
   }
 
