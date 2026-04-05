@@ -145,50 +145,8 @@ struct RecordingTab: View {
           }
         }
 
-        Toggle(isOn: $settings.useEscToCancel) {
-          InfoLabel(title: "Use Escape to cancel recording", tooltip: "Press Escape while recording to cancel without transcribing.")
-        }
       } header: {
         Text("Recording Behavior")
-      }
-
-      // MARK: Advanced
-      Section {
-        Toggle(isOn: $settings.enableAutoStopOnSilence) {
-          InfoLabel(title: "Auto-stop on silence", tooltip: "Automatically stop recording when no speech is detected for a set duration.")
-        }
-
-        if settings.enableAutoStopOnSilence {
-          LabeledContent {
-            Slider(value: $settings.silenceThresholdDB, in: -60.0...(-30.0), step: 5.0) {
-              Text("Threshold")
-            }
-            Text("\(Int(settings.silenceThresholdDB)) dB")
-              .foregroundStyle(.secondary)
-              .monospacedDigit()
-              .frame(width: 50)
-          } label: {
-            InfoLabel(title: "Silence threshold", tooltip: "Audio level below which is considered silence. Lower values are more sensitive.")
-          }
-
-          LabeledContent {
-            Slider(value: $settings.silenceDurationSeconds, in: 1.0...10.0, step: 0.5) {
-              Text("Duration")
-            }
-            Text("\(settings.silenceDurationSeconds, specifier: "%.1f")s")
-              .foregroundStyle(.secondary)
-              .monospacedDigit()
-              .frame(width: 40)
-          } label: {
-            InfoLabel(title: "Silence duration", tooltip: "How long silence must last before auto-stopping.")
-          }
-        }
-      } header: {
-        Text("Advanced")
-      } footer: {
-        if settings.enableAutoStopOnSilence {
-          Text("Recording will show a visual warning before auto-stopping.")
-        }
       }
 
     }
