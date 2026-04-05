@@ -26,12 +26,13 @@ func formatSpeed(_ bytesPerSecond: Double) -> String {
 
 // MARK: - Info Label
 
-/// A label with a trailing ⓘ icon that carries a hover tooltip.
+/// A label with a trailing ⓘ icon that shows a popover on click.
 /// Use in place of plain string labels on settings controls
 /// to make help text visually discoverable.
 struct InfoLabel: View {
   let title: String
   let tooltip: String
+  @State private var showPopover = false
 
   var body: some View {
     HStack(spacing: 4) {
@@ -39,8 +40,42 @@ struct InfoLabel: View {
       Image(systemName: "info.circle")
         .font(.system(size: 11))
         .foregroundStyle(.secondary)
-        .help(tooltip)
+        .onTapGesture {
+          showPopover.toggle()
+        }
+        .popover(isPresented: $showPopover, arrowEdge: .trailing) {
+          Text(tooltip)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .padding(10)
+            .frame(maxWidth: 260, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
+        }
     }
+  }
+}
+
+/// Standalone ⓘ icon with popover tooltip — for cases where InfoLabel doesn't fit
+/// (e.g., next to a Label with its own icon, or trailing a TextField).
+struct InfoIcon: View {
+  let tooltip: String
+  @State private var showPopover = false
+
+  var body: some View {
+    Image(systemName: "info.circle")
+      .font(.system(size: 11))
+      .foregroundStyle(.secondary)
+      .onTapGesture {
+        showPopover.toggle()
+      }
+      .popover(isPresented: $showPopover, arrowEdge: .trailing) {
+        Text(tooltip)
+          .font(.callout)
+          .foregroundStyle(.secondary)
+          .padding(10)
+          .frame(maxWidth: 260, alignment: .leading)
+          .fixedSize(horizontal: false, vertical: true)
+      }
   }
 }
 

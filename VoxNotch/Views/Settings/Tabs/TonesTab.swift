@@ -194,10 +194,7 @@ struct TonesTab: View {
         HStack {
           Label("Custom Tones", systemImage: "slider.horizontal.3")
             .font(.body)
-          Image(systemName: "info.circle")
-            .font(.system(size: 11))
-            .foregroundStyle(.secondary)
-            .help("Write your own AI prompt to control exactly how transcriptions are refined. Full Markdown supported.")
+          InfoIcon(tooltip: "Write your own AI prompt to control exactly how transcriptions are refined. Full Markdown supported.")
           if !customTones.isEmpty {
             Text("\(customTones.count)")
               .font(.caption2)
@@ -261,10 +258,7 @@ struct TonesTab: View {
             HStack {
               TextField("Model Name", text: $settings.llmModel)
                 .textFieldStyle(.roundedBorder)
-              Image(systemName: "info.circle")
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .help("Ollama model name (e.g., llama3.2:3b)")
+              InfoIcon(tooltip: "Ollama model name (e.g., llama3.2:3b)")
             }
           }
 
