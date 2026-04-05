@@ -626,8 +626,8 @@ final class AudioCaptureManager {
 
         // Reset audio level
         DispatchQueue.main.async {
-            AppState.shared.audioLevel = 0
-            AppState.shared.audioFrequencyBands = [Float](repeating: 0, count: 6)
+            AudioVisualizationState.shared.audioLevel = 0
+            AudioVisualizationState.shared.audioFrequencyBands = [Float](repeating: 0, count: 6)
         }
         audioLock.withLock {
             previousBands = [Float](repeating: 0, count: 6)
@@ -668,8 +668,8 @@ final class AudioCaptureManager {
         accumulateBuffers = true
 
         DispatchQueue.main.async {
-            AppState.shared.audioLevel = 0
-            AppState.shared.audioFrequencyBands = [Float](repeating: 0, count: 6)
+            AudioVisualizationState.shared.audioLevel = 0
+            AudioVisualizationState.shared.audioFrequencyBands = [Float](repeating: 0, count: 6)
         }
 
         logger.info("Recording cancelled")
@@ -939,8 +939,8 @@ final class AudioCaptureManager {
             let sampleRate = buffer.format.sampleRate
             let bands = computeFrequencyBands(from: channelDataValueArray, sampleRate: sampleRate)
             DispatchQueue.main.async {
-                AppState.shared.audioLevel = normalizedLevel
-                AppState.shared.audioFrequencyBands = bands
+                AudioVisualizationState.shared.audioLevel = normalizedLevel
+                AudioVisualizationState.shared.audioFrequencyBands = bands
             }
         }
 

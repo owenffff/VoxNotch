@@ -74,7 +74,7 @@ struct CompactLeadingView: View {
         .fill(.red)
         .frame(width: 8, height: 8)
 
-      ScrollingWaveformView(level: appState.audioLevel)
+      ScrollingWaveformView(level: AudioVisualizationState.shared.audioLevel)
         .frame(maxWidth: .infinity)
     }
   }

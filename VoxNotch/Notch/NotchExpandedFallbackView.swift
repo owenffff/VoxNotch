@@ -104,7 +104,7 @@ struct NotchExpandedFallbackView: View {
         .fill(.red)
         .frame(width: 6, height: 6)
 
-      ScrollingWaveformView(level: appState.audioLevel)
+      ScrollingWaveformView(level: AudioVisualizationState.shared.audioLevel)
         .frame(maxWidth: .infinity)
         .frame(height: 14)
 

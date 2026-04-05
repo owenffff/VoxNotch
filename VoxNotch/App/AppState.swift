@@ -69,12 +69,6 @@ final class AppState {
   /// Whether no input microphone is detected
   var noMicrophoneDetected: Bool = false
 
-  // MARK: - Audio Level (for visualizer)
-
-  var audioLevel: Float = 0.0
-
-  var audioFrequencyBands: [Float] = [Float](repeating: 0, count: 6)
-
   // MARK: - Silence Detection
 
   /// Indicates silence warning is active (about to auto-stop)
@@ -178,8 +172,6 @@ final class AppState {
     llmWarning = nil
     llmFailedWithRetry = false
     lastOutputWasClipboard = false
-    audioLevel = 0.0
-    audioFrequencyBands = [Float](repeating: 0, count: 6)
     silenceWarningActive = false
     recordingDuration = 0
     noMicrophoneDetected = false

@@ -225,8 +225,8 @@ final class SystemAudioCaptureManager: NSObject, SCStreamOutput, SCStreamDelegat
         let fileURL = try saveBuffersToFile()
 
         DispatchQueue.main.async {
-            AppState.shared.audioLevel = 0
-            AppState.shared.audioFrequencyBands = [Float](repeating: 0, count: 6)
+            AudioVisualizationState.shared.audioLevel = 0
+            AudioVisualizationState.shared.audioFrequencyBands = [Float](repeating: 0, count: 6)
         }
         previousBands = [Float](repeating: 0, count: 6)
 
@@ -260,8 +260,8 @@ final class SystemAudioCaptureManager: NSObject, SCStreamOutput, SCStreamDelegat
         }
 
         DispatchQueue.main.async {
-            AppState.shared.audioLevel = 0
-            AppState.shared.audioFrequencyBands = [Float](repeating: 0, count: 6)
+            AudioVisualizationState.shared.audioLevel = 0
+            AudioVisualizationState.shared.audioFrequencyBands = [Float](repeating: 0, count: 6)
         }
 
         logger.info("Recording cancelled")
@@ -339,8 +339,8 @@ final class SystemAudioCaptureManager: NSObject, SCStreamOutput, SCStreamDelegat
         if isRecording {
             isRecording = false
             DispatchQueue.main.async {
-                AppState.shared.audioLevel = 0
-                AppState.shared.audioFrequencyBands = [Float](repeating: 0, count: 6)
+                AudioVisualizationState.shared.audioLevel = 0
+                AudioVisualizationState.shared.audioFrequencyBands = [Float](repeating: 0, count: 6)
             }
         }
     }
@@ -422,8 +422,8 @@ final class SystemAudioCaptureManager: NSObject, SCStreamOutput, SCStreamDelegat
             let sampleRate = buffer.format.sampleRate
             let bands = computeFrequencyBands(from: channelDataValueArray, sampleRate: sampleRate)
             DispatchQueue.main.async {
-                AppState.shared.audioLevel = normalizedLevel
-                AppState.shared.audioFrequencyBands = bands
+                AudioVisualizationState.shared.audioLevel = normalizedLevel
+                AudioVisualizationState.shared.audioFrequencyBands = bands
             }
         }
 
