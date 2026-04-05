@@ -65,22 +65,26 @@ struct OnboardingView: View {
       Divider()
         .padding(.top, 16)
 
-      // Step content
-      Group {
-        switch currentStep {
-        case .welcome:
-          welcomeStep
-        case .permissions:
-          permissionsStep
-        case .model:
-          modelStep
-        case .tutorial:
-          tutorialStep
-        case .complete:
-          completeStep
+      // Step content — ScrollView prevents overflow pushing buttons out
+      ScrollView {
+        Group {
+          switch currentStep {
+          case .welcome:
+            welcomeStep
+          case .permissions:
+            permissionsStep
+          case .model:
+            modelStep
+          case .tutorial:
+            tutorialStep
+          case .complete:
+            completeStep
+          }
         }
+        .frame(maxWidth: .infinity)
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .scrollIndicators(.never)
       .animation(.easeInOut(duration: 0.3), value: currentStep)
 
       Divider()
