@@ -367,6 +367,7 @@ struct RecordingTab: View {
 
   @Bindable private var settings = SettingsManager.shared
   @State private var hotkeyError: String?
+  @State private var showAdvancedRecording = false
 
   // Microphone test state
   @State private var isTesting = false
@@ -428,119 +429,120 @@ struct RecordingTab: View {
           .font(.caption)
       }
 
-      // MARK: Auto-Stop
-      Section {
-        Toggle("Auto-stop on silence", isOn: $settings.enableAutoStopOnSilence)
-          .help("Automatically stop recording after extended silence")
+      // MARK: Advanced
+      DisclosureGroup("Advanced", isExpanded: $showAdvancedRecording) {
+        VStack(alignment: .leading, spacing: 8) {
+          // Auto-Stop
+          Toggle("Auto-stop on silence", isOn: $settings.enableAutoStopOnSilence)
+            .help("Automatically stop recording after extended silence")
 
-        if settings.enableAutoStopOnSilence {
-          LabeledContent("Silence threshold") {
-            Slider(value: $settings.silenceThresholdDB, in: -60.0...(-30.0), step: 5.0) {
-              Text("Threshold")
+          if settings.enableAutoStopOnSilence {
+            LabeledContent("Silence threshold") {
+              Slider(value: $settings.silenceThresholdDB, in: -60.0...(-30.0), step: 5.0) {
+                Text("Threshold")
+              }
+              Text("\(Int(settings.silenceThresholdDB)) dB")
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .frame(width: 50)
             }
-            Text("\(Int(settings.silenceThresholdDB)) dB")
-              .foregroundStyle(.secondary)
-              .monospacedDigit()
-              .frame(width: 50)
-          }
-          .help("Audio level below which is considered silence. Lower values are more sensitive.")
+            .help("Audio level below which is considered silence. Lower values are more sensitive.")
 
-          LabeledContent("Silence duration") {
-            Slider(value: $settings.silenceDurationSeconds, in: 1.0...10.0, step: 0.5) {
-              Text("Duration")
+            LabeledContent("Silence duration") {
+              Slider(value: $settings.silenceDurationSeconds, in: 1.0...10.0, step: 0.5) {
+                Text("Duration")
+              }
+              Text("\(settings.silenceDurationSeconds, specifier: "%.1f")s")
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .frame(width: 40)
             }
-            Text("\(settings.silenceDurationSeconds, specifier: "%.1f")s")
+            .help("How long silence must last before auto-stopping")
+
+            Text("Recording will show a visual warning before auto-stopping.")
+              .font(.caption)
               .foregroundStyle(.secondary)
-              .monospacedDigit()
-              .frame(width: 40)
-          }
-          .help("How long silence must last before auto-stopping")
-
-          Text("Recording will show a visual warning before auto-stopping.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-        }
-      } header: {
-        Text("Auto-Stop")
-      }
-
-      // MARK: Microphone
-      Section {
-        Picker("Device", selection: Binding(
-          get: { settings.selectedMicrophoneDeviceID },
-          set: { newValue in
-            settings.selectedMicrophoneDeviceID = newValue
-            AudioCaptureManager.shared.selectInputDevice(newValue == 0 ? nil : newValue)
-          }
-        )) {
-          Text("System Default").tag(UInt32(0))
-          Divider()
-          ForEach(availableMicrophones, id: \.id) { mic in
-            Text(mic.name).tag(mic.id)
           }
         }
 
-        VStack(alignment: .leading, spacing: 12) {
-          HStack {
-            Button(isTesting ? "Stop Test" : "Start Test") {
-              if isTesting {
-                stopTest()
-              } else {
-                startTest()
-              }
+        Divider()
+
+        VStack(alignment: .leading, spacing: 8) {
+          // Microphone
+          Picker("Device", selection: Binding(
+            get: { settings.selectedMicrophoneDeviceID },
+            set: { newValue in
+              settings.selectedMicrophoneDeviceID = newValue
+              AudioCaptureManager.shared.selectInputDevice(newValue == 0 ? nil : newValue)
             }
-            .buttonStyle(.borderedProminent)
-            .tint(isTesting ? .red : .accentColor)
-
-            if isTesting {
-              HStack(spacing: 4) {
-                Circle()
-                  .fill(Color.red)
-                  .frame(width: 8, height: 8)
-                  .opacity(0.8)
-                Text("Recording...")
-                  .font(.caption)
-                  .foregroundStyle(.secondary)
-              }
+          )) {
+            Text("System Default").tag(UInt32(0))
+            Divider()
+            ForEach(availableMicrophones, id: \.id) { mic in
+              Text(mic.name).tag(mic.id)
             }
+          }
 
-            Spacer()
-
-            if testAudioURL != nil && !isTesting {
-              Button(isPlaying ? "Stop Playback" : "Play Audio") {
-                if isPlaying {
-                  stopPlayback()
+          VStack(alignment: .leading, spacing: 12) {
+            HStack {
+              Button(isTesting ? "Stop Test" : "Start Test") {
+                if isTesting {
+                  stopTest()
                 } else {
-                  startPlayback()
+                  startTest()
                 }
               }
-              .buttonStyle(.bordered)
+              .buttonStyle(.borderedProminent)
+              .tint(isTesting ? .red : .accentColor)
+
+              if isTesting {
+                HStack(spacing: 4) {
+                  Circle()
+                    .fill(Color.red)
+                    .frame(width: 8, height: 8)
+                    .opacity(0.8)
+                  Text("Recording...")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                }
+              }
+
+              Spacer()
+
+              if testAudioURL != nil && !isTesting {
+                Button(isPlaying ? "Stop Playback" : "Play Audio") {
+                  if isPlaying {
+                    stopPlayback()
+                  } else {
+                    startPlayback()
+                  }
+                }
+                .buttonStyle(.bordered)
+              }
             }
-          }
 
-          if let error = testError {
-            Text(error)
-              .font(.caption)
-              .foregroundStyle(.red)
-          }
-
-          if let transcription = testTranscription {
-            VStack(alignment: .leading, spacing: 4) {
-              Text("Dictation Result:")
+            if let error = testError {
+              Text(error)
                 .font(.caption)
-                .foregroundStyle(.secondary)
-              Text(transcription.isEmpty ? "(No speech detected)" : transcription)
-                .font(.body)
-                .padding(8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.secondary.opacity(0.1))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .foregroundStyle(.red)
+            }
+
+            if let transcription = testTranscription {
+              VStack(alignment: .leading, spacing: 4) {
+                Text("Dictation Result:")
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+                Text(transcription.isEmpty ? "(No speech detected)" : transcription)
+                  .font(.body)
+                  .padding(8)
+                  .frame(maxWidth: .infinity, alignment: .leading)
+                  .background(Color.secondary.opacity(0.1))
+                  .clipShape(RoundedRectangle(cornerRadius: 6))
+              }
             }
           }
+          .padding(.top, 4)
         }
-        .padding(.top, 4)
-      } header: {
-        Text("Microphone")
       }
     }
     .formStyle(.grouped)
