@@ -152,6 +152,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         wizard.onComplete = {
             SettingsManager.shared.hasCompletedOnboarding = true
         }
+        // Reset so the wizard shows all steps fresh
+        SettingsManager.shared.hasCompletedOnboarding = false
         wizard.show()
     }
 
@@ -349,6 +351,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Refresh model states in case onboarding just downloaded a model
         FluidAudioModelManager.shared.refreshAllModelStates()
+        MLXAudioModelManager.shared.refreshAllModelStates()
     }
 
     // MARK: - Configuration

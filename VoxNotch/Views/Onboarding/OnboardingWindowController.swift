@@ -35,12 +35,7 @@ final class OnboardingWindowController: NSWindowController {
 
     super.init(window: window)
 
-    let onboardingView = OnboardingView {
-      SettingsManager.shared.hasCompletedOnboarding = true
-      self.onComplete?()
-      self.close()
-    }
-    window.contentView = NSHostingView(rootView: onboardingView)
+    installFreshView()
     window.sharingType = SettingsManager.shared.hideFromScreenRecording ? .none : .readOnly
   }
 
@@ -52,8 +47,20 @@ final class OnboardingWindowController: NSWindowController {
   // MARK: - Public
 
   func show() {
+    // Recreate the view so re-showing always starts from the welcome step
+    installFreshView()
     window?.center()
     window?.makeKeyAndOrderFront(nil)
     NSApp.activate(ignoringOtherApps: true)
+  }
+
+  // MARK: - Private
+
+  private func installFreshView() {
+    let onboardingView = OnboardingView { [weak self] in
+      self?.onComplete?()
+      self?.close()
+    }
+    window?.contentView = NSHostingView(rootView: onboardingView)
   }
 }
