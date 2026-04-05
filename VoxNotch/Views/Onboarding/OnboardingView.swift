@@ -44,6 +44,9 @@ struct OnboardingView: View {
   @State private var hasAccessibilityPermission = false
   @State private var permissionPollTimer: Timer?
 
+  /// Tutorial coordinator
+  @State private var tutorialCoordinator = TutorialHotkeyCoordinator()
+
   /// Model state
   @State private var selectedModel: SpeechModel = .parakeetV2
   @State private var isDownloading = false
@@ -348,107 +351,141 @@ struct OnboardingView: View {
     .disabled(isDownloading)
   }
 
-  // MARK: - Tutorial Step
+  // MARK: - Tutorial Step (Interactive)
 
   private var tutorialStep: some View {
-    VStack(spacing: 20) {
+    VStack(spacing: 16) {
       Image(systemName: "hand.tap.fill")
-        .font(.system(size: 50))
+        .font(.system(size: 40))
         .foregroundColor(.accentColor)
 
-      Text("How to Use VoxNotch")
+      Text("Try It Out")
         .font(.title)
         .fontWeight(.bold)
 
-      VStack(alignment: .leading, spacing: 16) {
-        tutorialRow(
-          step: 1,
+      Text("Perform each action to continue.")
+        .font(.body)
+        .foregroundStyle(.secondary)
+
+      VStack(spacing: 10) {
+        tutorialChecklistRow(
+          item: .pressHotkey,
           icon: "keyboard",
-          title: "Hold \(SettingsManager.shared.hotkeyModifiers) to record",
-          description: "Press and hold your hotkey to start recording"
+          title: "Hold \(SettingsManager.shared.hotkeyModifiers)",
+          description: "Press and hold your hotkey"
         )
-
-        tutorialRow(
-          step: 2,
-          icon: "waveform",
-          title: "Speak naturally",
-          description: "Talk while holding the hotkey — the notch shows a waveform"
-        )
-
-        tutorialRow(
-          step: 3,
+        tutorialChecklistRow(
+          item: .releaseHotkey,
           icon: "keyboard.badge.ellipsis",
-          title: "Release to transcribe",
-          description: "Let go and text is inserted at your cursor"
+          title: "Release \(SettingsManager.shared.hotkeyModifiers)",
+          description: "Let go of the hotkey"
+        )
+        tutorialChecklistRow(
+          item: .modelSwitch,
+          icon: "arrow.left.arrow.right",
+          title: "Hold hotkey + press ← or →",
+          description: "Quick-switch speech model"
+        )
+        tutorialChecklistRow(
+          item: .toneSwitch,
+          icon: "arrow.up.arrow.down",
+          title: "Hold hotkey + press ↑ or ↓",
+          description: "Quick-switch tone preset"
         )
       }
 
-      Divider()
-        .padding(.vertical, 4)
-
-      // Power features hint
-      VStack(alignment: .leading, spacing: 10) {
-        Text("Power Features")
-          .font(.headline)
-          .foregroundStyle(.secondary)
-
-        HStack(spacing: 10) {
-          Image(systemName: "arrow.left.arrow.right")
-            .font(.title3)
-            .foregroundColor(.accentColor)
-            .frame(width: 28)
-          VStack(alignment: .leading, spacing: 2) {
-            Text("Hold hotkey + ←→ arrows")
-              .font(.callout.bold())
-            Text("Quick-switch between speech models")
-              .font(.caption)
-              .foregroundStyle(.secondary)
-          }
-        }
-
-        HStack(spacing: 10) {
-          Image(systemName: "arrow.up.arrow.down")
-            .font(.title3)
-            .foregroundColor(.accentColor)
-            .frame(width: 28)
-          VStack(alignment: .leading, spacing: 2) {
-            Text("Hold hotkey + ↑↓ arrows")
-              .font(.callout.bold())
-            Text("Quick-switch between tone presets")
-              .font(.caption)
-              .foregroundStyle(.secondary)
-          }
-        }
+      // Feedback banner
+      if let feedback = tutorialCoordinator.feedbackText {
+        Text(feedback)
+          .font(.callout.bold())
+          .foregroundStyle(.white)
+          .padding(.horizontal, 16)
+          .padding(.vertical, 8)
+          .background(Color.green.cornerRadius(8))
+          .transition(.scale.combined(with: .opacity))
       }
-      .padding()
-      .background(.quaternary)
-      .cornerRadius(8)
+
+      if tutorialCoordinator.allCompleted {
+        Label("All done! You're ready to go.", systemImage: "checkmark.seal.fill")
+          .foregroundStyle(.green)
+          .font(.callout.bold())
+          .transition(.scale.combined(with: .opacity))
+      }
     }
     .padding()
+    .animation(.spring(response: 0.3), value: tutorialCoordinator.feedbackText != nil)
+    .animation(.spring(response: 0.3), value: tutorialCoordinator.allCompleted)
+    .onAppear { tutorialCoordinator.activate() }
+    .onDisappear { tutorialCoordinator.deactivate() }
   }
 
-  private func tutorialRow(step: Int, icon: String, title: String, description: String) -> some View {
-    HStack(alignment: .top, spacing: 16) {
+  private func tutorialChecklistRow(
+    item: TutorialChecklistItem,
+    icon: String,
+    title: String,
+    description: String
+  ) -> some View {
+    let state = tutorialCoordinator.itemStates[item] ?? .locked
+
+    return HStack(spacing: 14) {
       ZStack {
         Circle()
-          .fill(Color.accentColor)
+          .fill(tutorialCircleColor(for: state))
           .frame(width: 28, height: 28)
-        Text("\(step)")
-          .font(.headline)
-          .foregroundStyle(.white)
+
+        Group {
+          switch state {
+          case .completed:
+            Image(systemName: "checkmark")
+              .font(.caption.bold())
+          case .active:
+            Image(systemName: icon)
+              .font(.caption2)
+          case .locked:
+            Image(systemName: "lock.fill")
+              .font(.caption2)
+              .opacity(0.6)
+          }
+        }
+        .foregroundStyle(.white)
       }
 
-      VStack(alignment: .leading, spacing: 4) {
-        HStack {
-          Image(systemName: icon)
-            .foregroundColor(.accentColor)
-          Text(title)
-            .font(.headline)
-        }
+      VStack(alignment: .leading, spacing: 2) {
+        Text(title)
+          .font(.headline)
+          .foregroundStyle(state == .locked ? .secondary : .primary)
         Text(description)
-          .font(.body)
+          .font(.caption)
           .foregroundStyle(.secondary)
       }
+
+      Spacer()
+
+      if state == .completed {
+        Image(systemName: "checkmark.circle.fill")
+          .foregroundStyle(.green)
+          .font(.title3)
+          .transition(.scale)
+      }
+    }
+    .padding(10)
+    .background(
+      RoundedRectangle(cornerRadius: 8)
+        .fill(state == .active ? Color.accentColor.opacity(0.08) : Color.clear)
+    )
+    .overlay(
+      RoundedRectangle(cornerRadius: 8)
+        .stroke(state == .active ? Color.accentColor.opacity(0.3) : Color.clear, lineWidth: 1)
+    )
+    .opacity(state == .locked ? 0.5 : 1.0)
+    .animation(.easeInOut(duration: 0.3), value: state)
+  }
+
+  private func tutorialCircleColor(for state: TutorialItemState) -> Color {
+    switch state {
+    case .completed: .green
+    case .active: .accentColor
+    case .locked: .secondary.opacity(0.4)
     }
   }
 
@@ -523,6 +560,7 @@ struct OnboardingView: View {
         .buttonStyle(.borderedProminent)
         .disabled(isDownloading)
         .disabled(currentStep == .model && !isModelDownloaded)
+        .disabled(currentStep == .tutorial && !tutorialCoordinator.allCompleted)
       }
     }
   }

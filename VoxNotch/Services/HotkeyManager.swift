@@ -58,6 +58,9 @@ final class HotkeyManager {
         }
     }
 
+    /// Whether the event tap is currently active
+    var isListening: Bool { eventTap != nil }
+
     /// The event tap for capturing global key events
     private var eventTap: CFMachPort?
 
