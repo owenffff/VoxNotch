@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import os.log
 
 #if canImport(MLXAudioSTT)
 import MLXAudioSTT
@@ -151,7 +152,12 @@ struct CustomModelSheet: View {
       CustomModelRegistry.shared.markDownloaded(id: customModel.id)
 
       // Store in manager so it's immediately usable without reloading
-      try? await MLXAudioModelManager.shared.downloadAndLoadCustom(model: customModel)
+      do {
+        try await MLXAudioModelManager.shared.downloadAndLoadCustom(model: customModel)
+      } catch {
+        Logger(subsystem: "com.voxnotch", category: "CustomModelSheet")
+          .error("Failed to load custom model after registration: \(error)")
+      }
 
       await MainActor.run {
         _ = glmModel  // keep reference alive until here

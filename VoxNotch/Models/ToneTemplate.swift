@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import os.log
 
 // MARK: - ToneTemplate
 
@@ -58,6 +59,7 @@ final class ToneRegistry: @unchecked Sendable {
 
   static let shared = ToneRegistry()
 
+  private let logger = Logger(subsystem: "com.voxnotch", category: "ToneRegistry")
   private let defaultsKey = "toneTemplates"
   private let lock = NSLock()
 
@@ -111,10 +113,15 @@ final class ToneRegistry: @unchecked Sendable {
 
   private func loadOrSeed() {
     let defaults = UserDefaults.standard
-    if let data = defaults.data(forKey: defaultsKey),
-       let decoded = try? JSONDecoder().decode([ToneTemplate].self, from: data)
-    {
-      tones = decoded
+    if let data = defaults.data(forKey: defaultsKey) {
+      do {
+        tones = try JSONDecoder().decode([ToneTemplate].self, from: data)
+      } catch {
+        logger.error("Failed to decode tone templates from UserDefaults: \(error)")
+      }
+    }
+
+    if !tones.isEmpty {
       ensureNoneTone()
       // Backfill descriptions for built-in tones (added in progressive disclosure update)
       var backfilled = false
@@ -236,9 +243,17 @@ final class ToneRegistry: @unchecked Sendable {
     SettingsManager.shared.activeToneID = customID
   }
 
+  /// Persist current tones to UserDefaults.
+  /// Called outside the mutation lock — safe because we re-acquire the lock
+  /// here to snapshot. Encoding + I/O must stay outside the lock to avoid
+  /// blocking readers and to prevent NSLock deadlock (non-reentrant).
   private func save() {
     let snapshot = lock.withLock { tones }
-    guard let data = try? JSONEncoder().encode(snapshot) else { return }
-    UserDefaults.standard.set(data, forKey: defaultsKey)
+    do {
+      let data = try JSONEncoder().encode(snapshot)
+      UserDefaults.standard.set(data, forKey: defaultsKey)
+    } catch {
+      logger.error("Failed to encode tone templates: \(error)")
+    }
   }
 }

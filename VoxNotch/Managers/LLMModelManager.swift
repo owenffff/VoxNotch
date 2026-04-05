@@ -243,23 +243,30 @@ final class LLMModelManager {
       for try await byte in bytes {
         let char = Character(UnicodeScalar(byte))
         if char == "\n" {
-          if let data = lineBuffer.data(using: .utf8),
-             let progress = try? JSONDecoder().decode(OllamaPullProgress.self, from: data)
-          {
-            if let total = progress.total, total > 0, let completed = progress.completed {
-              let pct = Double(completed) / Double(total)
-              await MainActor.run {
-                pullStates[model.id] = .pulling(progress: pct)
-              }
+          if let data = lineBuffer.data(using: .utf8) {
+            let progress: OllamaPullProgress?
+            do {
+              progress = try JSONDecoder().decode(OllamaPullProgress.self, from: data)
+            } catch {
+              logger.debug("Failed to decode Ollama pull progress line: \(error)")
+              progress = nil
             }
-
-            if progress.status == "success" {
-              await MainActor.run {
-                pullStates[model.id] = .completed
+            if let progress {
+              if let total = progress.total, total > 0, let completed = progress.completed {
+                let pct = Double(completed) / Double(total)
+                await MainActor.run {
+                  pullStates[model.id] = .pulling(progress: pct)
+                }
               }
-              logger.info("Successfully pulled \(model.ollamaTag)")
-              await refreshOllamaModels()
-              return
+
+              if progress.status == "success" {
+                await MainActor.run {
+                  pullStates[model.id] = .completed
+                }
+                logger.info("Successfully pulled \(model.ollamaTag)")
+                await refreshOllamaModels()
+                return
+              }
             }
           }
           lineBuffer = ""

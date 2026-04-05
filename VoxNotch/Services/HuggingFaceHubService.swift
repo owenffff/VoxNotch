@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import os.log
 
 // MARK: - HF Model Info
 
@@ -88,6 +89,8 @@ actor HuggingFaceHubService {
 
   static let shared = HuggingFaceHubService()
 
+  private let logger = Logger(subsystem: "com.voxnotch", category: "HuggingFaceHubService")
+
   private init() {}
 
   // MARK: - Network Search
@@ -121,11 +124,17 @@ actor HuggingFaceHubService {
     let cacheDir = FileManager.default.homeDirectoryForCurrentUser
       .appendingPathComponent(".cache/huggingface/hub/mlx-audio")
 
-    guard let contents = try? FileManager.default.contentsOfDirectory(
-      at: cacheDir,
-      includingPropertiesForKeys: [.isDirectoryKey],
-      options: [.skipsHiddenFiles]
-    ) else { return [] }
+    let contents: [URL]
+    do {
+      contents = try FileManager.default.contentsOfDirectory(
+        at: cacheDir,
+        includingPropertiesForKeys: [.isDirectoryKey],
+        options: [.skipsHiddenFiles]
+      )
+    } catch {
+      logger.error("Failed to list local HF cache directory: \(error)")
+      return []
+    }
 
     return contents.compactMap { url -> HFModelInfo? in
       guard (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else {
@@ -143,10 +152,15 @@ actor HuggingFaceHubService {
       let sizeBytes = directorySize(at: url)
 
       // Build a synthetic HFModelInfo from local data
-      return try? JSONDecoder().decode(
-        HFModelInfo.self,
-        from: makeLocalJSON(repoID: repoID, size: Int(sizeBytes))
-      )
+      do {
+        return try JSONDecoder().decode(
+          HFModelInfo.self,
+          from: makeLocalJSON(repoID: repoID, size: Int(sizeBytes))
+        )
+      } catch {
+        logger.error("Failed to decode local model info for \(repoID): \(error)")
+        return nil
+      }
     }
   }
 

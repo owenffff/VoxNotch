@@ -367,6 +367,8 @@ final class ModelDownloadManager {
 /// Delegate for tracking download progress
 private final class ModelDownloadDelegate: NSObject, URLSessionDownloadDelegate {
 
+  private let logger = Logger(subsystem: "com.voxnotch", category: "ModelDownloadDelegate")
+
   /// Map task identifiers to models
   private var taskModelMap: [Int: LegacyWhisperModel] = [:]
 
@@ -412,7 +414,14 @@ private final class ModelDownloadDelegate: NSObject, URLSessionDownloadDelegate 
 
     /// Copy file to temp location before callback since original will be deleted
     let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-    try? FileManager.default.copyItem(at: location, to: tempURL)
+    do {
+      try FileManager.default.copyItem(at: location, to: tempURL)
+    } catch {
+      logger.error("Failed to copy downloaded file to temp location: \(error)")
+      taskModelMap[downloadTask.taskIdentifier] = nil
+      onComplete?(model, location, error)
+      return
+    }
 
     taskModelMap[downloadTask.taskIdentifier] = nil
     onComplete?(model, tempURL, nil)

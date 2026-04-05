@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import os.log
 
 // MARK: - Custom Speech Model
 
@@ -44,6 +45,7 @@ final class CustomModelRegistry: @unchecked Sendable {
 
   static let shared = CustomModelRegistry()
 
+  private let logger = Logger(subsystem: "com.voxnotch", category: "CustomModelRegistry")
   private let defaultsKey = "customSpeechModels"
   private let lock = NSLock()
 
@@ -92,16 +94,27 @@ final class CustomModelRegistry: @unchecked Sendable {
   // MARK: - Persistence
 
   private func load() {
-    guard let data = UserDefaults.standard.data(forKey: defaultsKey),
-          let decoded = try? JSONDecoder().decode([CustomSpeechModel].self, from: data)
-    else { return }
-    lock.withLock { models = decoded }
+    guard let data = UserDefaults.standard.data(forKey: defaultsKey) else { return }
+    do {
+      let decoded = try JSONDecoder().decode([CustomSpeechModel].self, from: data)
+      lock.withLock { models = decoded }
+    } catch {
+      logger.error("Failed to decode custom speech models from UserDefaults: \(error)")
+    }
   }
 
+  /// Persist current models to UserDefaults.
+  /// Called outside the mutation lock — safe because we re-acquire the lock
+  /// here to snapshot. Encoding + I/O must stay outside the lock to avoid
+  /// blocking readers and to prevent NSLock deadlock (non-reentrant).
   private func save() {
     let snapshot = lock.withLock { models }
-    guard let data = try? JSONEncoder().encode(snapshot) else { return }
-    UserDefaults.standard.set(data, forKey: defaultsKey)
+    do {
+      let data = try JSONEncoder().encode(snapshot)
+      UserDefaults.standard.set(data, forKey: defaultsKey)
+    } catch {
+      logger.error("Failed to encode custom speech models: \(error)")
+    }
   }
 }
 

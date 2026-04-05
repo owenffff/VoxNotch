@@ -56,8 +56,11 @@ enum FluidAudioModelVersion: String, CaseIterable, Identifiable, Sendable {
 
 /// Manages FluidAudio model downloads and lifecycle
 ///
-/// Thread Safety: `lock` (NSLock) protects mutable model state; `@Observable` property
-/// updates are dispatched to MainActor via `MainActor.run`.
+/// Thread Safety: uses dual protection —
+/// • `lock` (NSLock) guards internal model references (`loadedModels`, `loadedVersion`)
+///   that are read/written from async download tasks and background transcription providers.
+/// • UI-observable state (`modelStates`, `downloadProgress`) is written via `MainActor.run`
+///   from async methods; `refreshAllModelStates()` and `delete*()` must be called from MainActor.
 @Observable
 final class FluidAudioModelManager: @unchecked Sendable {
 
@@ -81,9 +84,9 @@ final class FluidAudioModelManager: @unchecked Sendable {
   /// Download progress (0.0 to 1.0)
   private(set) var downloadProgress: Double = 0
 
-  /// Whether any model is ready
+  /// Whether any model is ready (lock-protected — safe to call from any thread)
   var isReady: Bool {
-    loadedModels != nil
+    lock.withLock { loadedModels != nil }
   }
 
   /// Lock for thread safety
@@ -105,10 +108,12 @@ final class FluidAudioModelManager: @unchecked Sendable {
   /// - Returns: The loaded AsrModels
   @discardableResult
   func downloadAndLoad(version: FluidAudioModelVersion) async throws -> AsrModels {
-    let currentState = lock.withLock { modelStates[version] }
+    let (currentState, cachedModels, currentVersion) = lock.withLock {
+      (modelStates[version], loadedModels, loadedVersion)
+    }
 
     // Already ready, return cached models
-    if currentState == .ready, let models = loadedModels, loadedVersion == version {
+    if currentState == .ready, let models = cachedModels, currentVersion == version {
       return models
     }
 
@@ -118,8 +123,8 @@ final class FluidAudioModelManager: @unchecked Sendable {
       let deadline = Date().addingTimeInterval(300) // 5-minute timeout
       while Date() < deadline {
         try await Task.sleep(nanoseconds: 500_000_000)  // 500ms
-        let state = lock.withLock { modelStates[version] }
-        if case .ready = state, let models = loadedModels {
+        let (state, models) = lock.withLock { (modelStates[version], loadedModels) }
+        if case .ready = state, let models {
           return models
         }
         if case .failed(let message) = state {
@@ -211,13 +216,17 @@ final class FluidAudioModelManager: @unchecked Sendable {
 
   // MARK: - Model State Refresh
 
-  /// Check filesystem for all model types and update states without downloading
+  /// Check filesystem for all model types and update states without downloading.
+  /// Must be called from MainActor (writes UI-observable `modelStates`).
   func refreshAllModelStates() {
+    let (currentLoadedVersion, hasLoadedModels) = lock.withLock {
+      (loadedVersion, loadedModels != nil)
+    }
     for version in FluidAudioModelVersion.allCases {
       let isDownloaded = isVersionDownloaded(version)
       if isDownloaded {
         // If loaded in memory, mark ready; otherwise just downloaded
-        if loadedVersion == version && loadedModels != nil {
+        if currentLoadedVersion == version && hasLoadedModels {
           modelStates[version] = .ready
         } else {
           modelStates[version] = .downloaded
@@ -325,11 +334,12 @@ final class FluidAudioModelManager: @unchecked Sendable {
 
   // MARK: - Delete Methods
 
-  /// Delete batch ASR model files
+  /// Delete batch ASR model files.
+  /// Must be called from MainActor (writes UI-observable `modelStates`).
   func deleteBatchModel(version: FluidAudioModelVersion) throws {
-    // Unload if currently loaded
-    if loadedVersion == version {
-      lock.withLock {
+    // Atomically check and unload if currently loaded
+    lock.withLock {
+      if loadedVersion == version {
         loadedModels = nil
         loadedVersion = nil
       }
@@ -423,9 +433,12 @@ final class FluidAudioModelManager: @unchecked Sendable {
     guard !manifest.isEmpty else { return }
 
     let manifestURL = cacheDir.appendingPathComponent(".voxnotch_checksums.json")
-    if let data = try? JSONEncoder().encode(manifest) {
-      try? data.write(to: manifestURL, options: .atomic)
+    do {
+      let data = try JSONEncoder().encode(manifest)
+      try data.write(to: manifestURL, options: .atomic)
       logger.info("Saved checksum manifest for \(version.rawValue) (\(manifest.count) files)")
+    } catch {
+      logger.error("Failed to save checksum manifest for \(version.rawValue): \(error)")
     }
   }
 
@@ -435,10 +448,18 @@ final class FluidAudioModelManager: @unchecked Sendable {
     let cacheDir = AsrModels.defaultCacheDirectory(for: version.asrModelVersion)
     let manifestURL = cacheDir.appendingPathComponent(".voxnotch_checksums.json")
 
-    guard let data = try? Data(contentsOf: manifestURL),
-          let savedManifest = try? JSONDecoder().decode([String: String].self, from: data)
-    else {
+    let data: Data
+    do {
+      data = try Data(contentsOf: manifestURL)
+    } catch {
       return true // No manifest yet — trust first download
+    }
+    let savedManifest: [String: String]
+    do {
+      savedManifest = try JSONDecoder().decode([String: String].self, from: data)
+    } catch {
+      logger.error("Failed to decode checksum manifest for \(version.rawValue): \(error)")
+      return false // Corrupted manifest — treat as verification failure
     }
 
     let currentManifest = buildManifest(for: cacheDir)

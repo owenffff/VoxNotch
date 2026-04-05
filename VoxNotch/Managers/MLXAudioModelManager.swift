@@ -74,8 +74,12 @@ enum MLXAudioModelVersion: String, CaseIterable, Identifiable, Sendable {
 
 /// Manages MLX Audio model downloads and lifecycle
 ///
-/// Thread Safety: `lock` (NSLock) protects mutable model state; `@Observable` property
-/// updates are dispatched to MainActor via `MainActor.run`.
+/// Thread Safety: uses dual protection —
+/// • `lock` (NSLock) guards internal model references (`loadedModel`, `loadedVersion`,
+///   `loadedCustomModelID`) read/written from async download tasks and background providers.
+/// • UI-observable state (`modelStates`, `customModelStates`, `downloadProgress`,
+///   `alignerModelState`) is written via `MainActor.run` from async methods;
+///   `refreshAllModelStates()` and `delete*()` must be called from MainActor.
 @Observable
 final class MLXAudioModelManager: @unchecked Sendable {
 
@@ -102,9 +106,9 @@ final class MLXAudioModelManager: @unchecked Sendable {
   /// Download progress (0.0 to 1.0)
   private(set) var downloadProgress: Double = 0
 
-  /// Whether any model is ready
+  /// Whether any model is ready (lock-protected — safe to call from any thread)
   var isReady: Bool {
-    loadedVersion != nil || loadedCustomModelID != nil
+    lock.withLock { loadedVersion != nil || loadedCustomModelID != nil }
   }
 
   /// Lock for thread safety
@@ -148,12 +152,12 @@ final class MLXAudioModelManager: @unchecked Sendable {
   /// - Parameter version: The model version to download and load
   @discardableResult
   func downloadAndLoad(version: MLXAudioModelVersion) async throws -> URL {
-    lock.lock()
-    let currentState = modelStates[version]
-    lock.unlock()
+    let (currentState, currentVersion) = lock.withLock {
+      (modelStates[version], loadedVersion)
+    }
 
     /// Already ready, return cached path
-    if currentState == .ready, loadedVersion == version {
+    if currentState == .ready, currentVersion == version {
       return modelDirectory(for: version)
     }
 
@@ -163,9 +167,7 @@ final class MLXAudioModelManager: @unchecked Sendable {
       let deadline = Date().addingTimeInterval(300) // 5-minute timeout
       while Date() < deadline {
         try await Task.sleep(nanoseconds: 500_000_000) // 500ms
-        lock.lock()
-        let state = modelStates[version]
-        lock.unlock()
+        let state = lock.withLock { modelStates[version] }
         if case .ready = state {
           return modelDirectory(for: version)
         }
@@ -384,21 +386,19 @@ final class MLXAudioModelManager: @unchecked Sendable {
 
   /// Whether a custom model is loaded in memory and ready
   func isCustomModelReady(id: String) -> Bool {
-    lock.lock()
-    defer { lock.unlock() }
-    return loadedCustomModelID == id || customModelStates[id]?.isReady == true
+    lock.withLock { loadedCustomModelID == id } || customModelStates[id]?.isReady == true
   }
 
   /// Unload a specific custom model from memory (keeps HF cache)
   func unloadCustomModel(id: String) {
-    lock.lock()
-    if loadedCustomModelID == id {
-      loadedCustomModelID = nil
-      #if canImport(MLXAudioSTT)
-      loadedModel = nil
-      #endif
+    lock.withLock {
+      if loadedCustomModelID == id {
+        loadedCustomModelID = nil
+        #if canImport(MLXAudioSTT)
+        loadedModel = nil
+        #endif
+      }
     }
-    lock.unlock()
 
     Task { @MainActor in
       customModelStates[id] = .downloaded
@@ -438,10 +438,9 @@ final class MLXAudioModelManager: @unchecked Sendable {
   // MARK: - Model State Refresh
 
   /// Refresh model states by checking both in-memory and on-disk presence.
+  /// Must be called from MainActor (writes UI-observable `modelStates` and `alignerModelState`).
   func refreshAllModelStates() {
-    lock.lock()
-    let currentLoadedVersion = loadedVersion
-    lock.unlock()
+    let currentLoadedVersion = lock.withLock { loadedVersion }
 
     for version in MLXAudioModelVersion.allCases {
       /// Skip if currently downloading
@@ -466,15 +465,17 @@ final class MLXAudioModelManager: @unchecked Sendable {
 
   // MARK: - Delete Methods
 
-  /// Delete model files for a version from the actual MLX Audio cache
+  /// Delete model files for a version from the actual MLX Audio cache.
+  /// Must be called from MainActor (writes UI-observable `modelStates`).
   func deleteModel(version: MLXAudioModelVersion) throws {
-    if loadedVersion == version {
-      lock.lock()
-      #if canImport(MLXAudioSTT)
-      loadedModel = nil
-      #endif
-      loadedVersion = nil
-      lock.unlock()
+    // Atomically check and unload if currently loaded
+    lock.withLock {
+      if loadedVersion == version {
+        #if canImport(MLXAudioSTT)
+        loadedModel = nil
+        #endif
+        loadedVersion = nil
+      }
     }
 
     let cacheDir = mlxAudioCacheURL(for: version)
@@ -519,11 +520,25 @@ final class MLXAudioModelManager: @unchecked Sendable {
   func inferLoaderClass(hfRepoID: String) -> MLXModelLoaderClass {
     let cacheURL = mlxAudioCacheURL(repoID: hfRepoID)
       .appendingPathComponent("config.json")
-    guard
-      let data = try? Data(contentsOf: cacheURL),
-      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-      let modelType = json["model_type"] as? String
-    else { return .glmASR }
+    let data: Data
+    do {
+      data = try Data(contentsOf: cacheURL)
+    } catch {
+      logger.warning("Could not read config.json for \(hfRepoID), defaulting to glmASR: \(error)")
+      return .glmASR
+    }
+    let json: [String: Any]
+    do {
+      guard let parsed = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+        logger.warning("config.json for \(hfRepoID) is not a JSON object, defaulting to glmASR")
+        return .glmASR
+      }
+      json = parsed
+    } catch {
+      logger.warning("Failed to parse config.json for \(hfRepoID), defaulting to glmASR: \(error)")
+      return .glmASR
+    }
+    guard let modelType = json["model_type"] as? String else { return .glmASR }
 
     switch modelType {
     case "qwen3_asr": return .qwen3ASR
