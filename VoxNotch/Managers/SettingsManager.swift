@@ -97,6 +97,7 @@ final class SettingsManager {
     /// Sound Feedback
     static let successSoundEnabled = "successSoundEnabled"
     static let customSuccessSoundPath = "customSuccessSoundPath"
+    static let successSoundVolume = "successSoundVolume"
 
     /// History
     static let historyEnabled = "historyEnabled"
@@ -382,6 +383,11 @@ final class SettingsManager {
     didSet { save(customSuccessSoundPath, forKey: Keys.customSuccessSoundPath) }
   }
 
+  /// Success sound volume (0.0 to 1.0)
+  var successSoundVolume: Float {
+    didSet { save(Double(successSoundVolume), forKey: Keys.successSoundVolume) }
+  }
+
   // MARK: - History Settings
 
   /// Whether to save transcriptions to history
@@ -494,6 +500,7 @@ final class SettingsManager {
     /// Sound Feedback
     self.successSoundEnabled = defaults.object(forKey: Keys.successSoundEnabled) as? Bool ?? true
     self.customSuccessSoundPath = defaults.string(forKey: Keys.customSuccessSoundPath) ?? ""
+    self.successSoundVolume = defaults.object(forKey: Keys.successSoundVolume) as? Float ?? 0.5
 
     /// History
     self.historyEnabled = defaults.object(forKey: Keys.historyEnabled) as? Bool ?? true
@@ -554,7 +561,7 @@ final class SettingsManager {
       Keys.fluidAudioModel,
       Keys.activeToneID, Keys.pinnedToneIDs,
       Keys.historyEnabled, Keys.historyRetentionDays, Keys.saveAudioRecordings,
-      Keys.successSoundEnabled, Keys.customSuccessSoundPath
+      Keys.successSoundEnabled, Keys.customSuccessSoundPath, Keys.successSoundVolume
     ]
 
     for key in allKeys {
@@ -599,5 +606,6 @@ final class SettingsManager {
     saveAudioRecordings = false
     successSoundEnabled = true
     customSuccessSoundPath = ""
+    successSoundVolume = 0.5
   }
 }

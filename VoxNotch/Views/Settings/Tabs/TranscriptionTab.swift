@@ -77,20 +77,18 @@ struct TranscriptionTab: View {
           }
 
           HStack {
+            Text("Volume")
+            Slider(
+              value: Binding(
+                get: { Double(settings.successSoundVolume) },
+                set: { settings.successSoundVolume = Float($0) }
+              ),
+              in: 0...1
+            )
             Button {
               SoundManager.shared.previewSound()
             } label: {
               Label("Preview", systemImage: "speaker.wave.2")
-                .font(.caption)
-            }
-            .buttonStyle(.borderless)
-
-            Spacer()
-
-            Button {
-              NSWorkspace.shared.open(SoundManager.shared.soundsDirectory)
-            } label: {
-              Label("Open Sounds Folder", systemImage: "folder")
                 .font(.caption)
             }
             .buttonStyle(.borderless)

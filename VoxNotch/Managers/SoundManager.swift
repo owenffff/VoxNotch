@@ -64,6 +64,7 @@ final class SoundManager {
   private func playFile(at url: URL) {
     do {
       let player = try AVAudioPlayer(contentsOf: url)
+      player.volume = SettingsManager.shared.successSoundVolume
       currentPlayer = player
       player.play()
     } catch {

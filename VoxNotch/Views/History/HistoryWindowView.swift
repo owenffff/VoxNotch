@@ -89,25 +89,47 @@ struct HistoryWindowView: View {
 
   private var transcriptionList: some View {
     List(selection: $selectedTranscription) {
-      ForEach(transcriptions) { transcription in
-        TranscriptionRowView(transcription: transcription)
-          .tag(transcription)
-          .contextMenu {
-            Button("Copy Text") {
-              copyText(for: transcription)
-            }
+      ForEach(groupedTranscriptions, id: \.key) { group in
+        Section(header: Text(group.key)) {
+          ForEach(group.records) { transcription in
+            TranscriptionRowView(transcription: transcription)
+              .tag(transcription)
+              .contextMenu {
+                Button("Copy Text") {
+                  copyText(for: transcription)
+                }
 
-            Divider()
+                Divider()
 
-            Button("Delete", role: .destructive) {
-              transcriptionToDelete = transcription
-              showDeleteConfirmation = true
-            }
+                Button("Delete", role: .destructive) {
+                  transcriptionToDelete = transcription
+                  showDeleteConfirmation = true
+                }
+              }
           }
+        }
       }
     }
     .listStyle(.sidebar)
   }
+
+  private var groupedTranscriptions: [DateGroup] {
+    let calendar = Calendar.current
+    let grouped = Dictionary(grouping: transcriptions) { record in
+      calendar.startOfDay(for: record.timestamp)
+    }
+    return grouped.sorted { $0.key > $1.key }.map { date, records in
+      DateGroup(key: Self.sectionDateFormatter.string(from: date), records: records)
+    }
+  }
+
+  private static let sectionDateFormatter: DateFormatter = {
+    let f = DateFormatter()
+    f.doesRelativeDateFormatting = true
+    f.dateStyle = .medium
+    f.timeStyle = .none
+    return f
+  }()
 
   // MARK: - Detail
 
@@ -177,6 +199,13 @@ struct HistoryWindowView: View {
     NSPasteboard.general.clearContents()
     NSPasteboard.general.setString(transcription.displayText, forType: .string)
   }
+}
+
+// MARK: - Date Group
+
+private struct DateGroup {
+  let key: String
+  let records: [TranscriptionRecord]
 }
 
 // MARK: - Metadata Helpers
