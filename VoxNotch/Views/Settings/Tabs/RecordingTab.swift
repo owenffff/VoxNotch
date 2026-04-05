@@ -25,6 +25,82 @@ struct RecordingTab: View {
 
   var body: some View {
     Form {
+      // MARK: Microphone
+      Section {
+        Picker("Device", selection: Binding(
+          get: { settings.selectedMicrophoneDeviceID },
+          set: { newValue in
+            settings.selectedMicrophoneDeviceID = newValue
+            AudioCaptureManager.shared.selectInputDevice(newValue == 0 ? nil : newValue)
+          }
+        )) {
+          Text("System Default").tag(UInt32(0))
+          Divider()
+          ForEach(availableMicrophones, id: \.id) { mic in
+            Text(mic.name).tag(mic.id)
+          }
+        }
+
+        HStack {
+          Button(isTesting ? "Stop Test" : "Start Test") {
+            if isTesting {
+              stopTest()
+            } else {
+              startTest()
+            }
+          }
+          .buttonStyle(.borderedProminent)
+          .tint(isTesting ? .red : .accentColor)
+
+          if isTesting {
+            HStack(spacing: 4) {
+              Circle()
+                .fill(Color.red)
+                .frame(width: 8, height: 8)
+                .opacity(0.8)
+              Text("Recording...")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+          }
+
+          Spacer()
+
+          if testAudioURL != nil && !isTesting {
+            Button(isPlaying ? "Stop Playback" : "Play Audio") {
+              if isPlaying {
+                stopPlayback()
+              } else {
+                startPlayback()
+              }
+            }
+            .buttonStyle(.bordered)
+          }
+        }
+
+        if let error = testError {
+          Text(error)
+            .font(.caption)
+            .foregroundStyle(.red)
+        }
+
+        if let transcription = testTranscription {
+          VStack(alignment: .leading, spacing: 4) {
+            Text("Dictation Result:")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+            Text(transcription.isEmpty ? "(No speech detected)" : transcription)
+              .font(.body)
+              .padding(8)
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .background(Color.secondary.opacity(0.1))
+              .clipShape(RoundedRectangle(cornerRadius: 6))
+          }
+        }
+      } header: {
+        Text("Microphone")
+      }
+
       // MARK: Hotkey
       Section {
         LabeledContent("Recording Hotkey") {
@@ -115,83 +191,6 @@ struct RecordingTab: View {
         }
       }
 
-      // MARK: Microphone
-      Section {
-        Picker("Device", selection: Binding(
-          get: { settings.selectedMicrophoneDeviceID },
-          set: { newValue in
-            settings.selectedMicrophoneDeviceID = newValue
-            AudioCaptureManager.shared.selectInputDevice(newValue == 0 ? nil : newValue)
-          }
-        )) {
-          Text("System Default").tag(UInt32(0))
-          Divider()
-          ForEach(availableMicrophones, id: \.id) { mic in
-            Text(mic.name).tag(mic.id)
-          }
-        }
-
-        HStack {
-          Button(isTesting ? "Stop Test" : "Start Test") {
-            if isTesting {
-              stopTest()
-            } else {
-              startTest()
-            }
-          }
-          .buttonStyle(.borderedProminent)
-          .tint(isTesting ? .red : .accentColor)
-
-          if isTesting {
-            HStack(spacing: 4) {
-              Circle()
-                .fill(Color.red)
-                .frame(width: 8, height: 8)
-                .opacity(0.8)
-              Text("Recording...")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-          }
-
-          Spacer()
-
-          if testAudioURL != nil && !isTesting {
-            Button(isPlaying ? "Stop Playback" : "Play Audio") {
-              if isPlaying {
-                stopPlayback()
-              } else {
-                startPlayback()
-              }
-            }
-            .buttonStyle(.bordered)
-          }
-        }
-
-        if let error = testError {
-          Text(error)
-            .font(.caption)
-            .foregroundStyle(.red)
-        }
-
-        if let transcription = testTranscription {
-          VStack(alignment: .leading, spacing: 4) {
-            Text("Dictation Result:")
-              .font(.caption)
-              .foregroundStyle(.secondary)
-            Text(transcription.isEmpty ? "(No speech detected)" : transcription)
-              .font(.body)
-              .padding(8)
-              .frame(maxWidth: .infinity, alignment: .leading)
-              .background(Color.secondary.opacity(0.1))
-              .clipShape(RoundedRectangle(cornerRadius: 6))
-          }
-        }
-      } header: {
-        Text("Microphone")
-      } footer: {
-        Text("Test your microphone to verify recording and transcription work correctly.")
-      }
     }
     .formStyle(.grouped)
     .scrollIndicators(.never)
