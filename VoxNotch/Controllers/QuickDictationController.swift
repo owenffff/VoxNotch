@@ -357,11 +357,16 @@ final class QuickDictationController {
         if case .recording = stateMachine.state {
             stopRecordingQuietly()
         }
-        if case .toneSelecting = stateMachine.state {
-            cycleToneSelection(direction: direction)
-        } else {
-            enterToneSelectionMode(direction: direction)
+        if case .error = stateMachine.state {
+            stateMachine.transition(to: .idle)
         }
+        guard case .idle = stateMachine.state else {
+            if case .toneSelecting = stateMachine.state {
+                cycleToneSelection(direction: direction)
+            }
+            return
+        }
+        enterToneSelectionMode(direction: direction)
     }
 
     private func getPinnedTones() -> [ToneTemplate] {
@@ -418,11 +423,16 @@ final class QuickDictationController {
         if case .recording = stateMachine.state {
             stopRecordingQuietly()
         }
-        if case .modelSelecting = stateMachine.state {
-            cycleModelSelection(direction: direction)
-        } else {
-            enterModelSelectionMode(direction: direction)
+        if case .error = stateMachine.state {
+            stateMachine.transition(to: .idle)
         }
+        guard case .idle = stateMachine.state else {
+            if case .modelSelecting = stateMachine.state {
+                cycleModelSelection(direction: direction)
+            }
+            return
+        }
+        enterModelSelectionMode(direction: direction)
     }
 
     private func getPinnedModels() -> [AnyModel] {
