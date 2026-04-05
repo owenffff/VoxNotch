@@ -355,7 +355,7 @@ struct HistoryTab: View {
           transcriptionCount = 0
         }
       } catch {
-        // Silently fail — user can retry
+        print("SettingsView: Failed to clear history: \(error)")
       }
     }
   }

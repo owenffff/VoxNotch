@@ -163,7 +163,7 @@ struct HistoryWindowView: View {
         selectedTranscription = nil
       }
     } catch {
-      // Silently handle
+      print("HistoryWindowView: Failed to delete transcription: \(error)")
     }
   }
 

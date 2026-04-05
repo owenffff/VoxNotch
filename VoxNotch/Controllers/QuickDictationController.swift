@@ -526,13 +526,17 @@ final class QuickDictationController {
                         audioPath: audioPath,
                         metadata: metadataJSON
                     )
-                    Task.detached {
+                    Task {
                         do {
                             _ = try await DatabaseManager.shared.write { db in
                                 try record.insert(db)
                             }
                         } catch {
                             print("QuickDictationController: Failed to save history: \(error)")
+                            await MainActor.run {
+                                AppState.shared.lastError = "Failed to save to history"
+                                AppState.shared.lastErrorRecovery = "Transcription succeeded but could not be saved"
+                            }
                         }
                     }
                 }

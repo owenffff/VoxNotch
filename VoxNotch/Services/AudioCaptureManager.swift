@@ -450,13 +450,15 @@ final class AudioCaptureManager {
             guard let self = self, self.isRecording else { return }
 
             // Lazily create resampling converter from the actual hardware format
-            if self.resamplingConverter == nil {
-                self.resamplingConverter = AVAudioConverter(from: buffer.format, to: self.resampledFormat)
+            self.audioLock.withLock {
+                if self.resamplingConverter == nil {
+                    self.resamplingConverter = AVAudioConverter(from: buffer.format, to: self.resampledFormat)
+                }
             }
 
             // Resample mic audio to 16kHz mono
             var micSamples16kHz: [Float] = []
-            if let converter = self.resamplingConverter {
+            if let converter = self.audioLock.withLock({ self.resamplingConverter }) {
                 let ratio = self.targetSampleRate / buffer.format.sampleRate
                 let outputFrameCapacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1
 
@@ -536,7 +538,7 @@ final class AudioCaptureManager {
             audioEngine.inputNode.removeTap(onBus: 0)
             isTapInstalled = false
             audioEngine.reset()
-            resamplingConverter = nil
+            audioLock.withLock { resamplingConverter = nil }
             applySelectedDevice()
         }
 
@@ -553,7 +555,7 @@ final class AudioCaptureManager {
             audioEngine.inputNode.removeTap(onBus: 0)
             isTapInstalled = false
             audioEngine.reset()
-            resamplingConverter = nil
+            audioLock.withLock { resamplingConverter = nil }
             applySelectedDevice()
             installTapIfNeeded()
             
@@ -584,7 +586,7 @@ final class AudioCaptureManager {
         audioEngine.inputNode.removeTap(onBus: 0)
         isTapInstalled = false
         isRecording = false
-        resamplingConverter = nil
+        audioLock.withLock { resamplingConverter = nil }
         accumulateBuffers = true
 
         let duration = recordingStartTime.map { Date().timeIntervalSince($0) } ?? 0
@@ -643,7 +645,7 @@ final class AudioCaptureManager {
             recordedBuffers.removeAll()
             previousBands = [Float](repeating: 0, count: 6)
         }
-        resamplingConverter = nil
+        audioLock.withLock { resamplingConverter = nil }
         accumulateBuffers = true
 
         DispatchQueue.main.async {

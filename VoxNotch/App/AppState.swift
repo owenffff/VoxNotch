@@ -8,7 +8,7 @@
 import SwiftUI
 import Observation
 
-@Observable
+@MainActor @Observable
 final class AppState {
 
   // MARK: - Singleton
