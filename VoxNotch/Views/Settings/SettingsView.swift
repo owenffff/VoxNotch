@@ -823,34 +823,16 @@ struct DictationSpeechModelTab: View {
 
   // MARK: - Built-in Model Helpers
 
-  private func downloadState(for model: SpeechModel) -> ModelDownloadState {
+  private func downloadState(for model: SpeechModel) -> UIDownloadState {
     switch model.engine {
     case .fluidAudio:
       guard let version = model.fluidAudioVersion else { return .notDownloaded }
       let state = fluidModelManager.modelStates[version] ?? .notDownloaded
-      return mapFluidStateToDownloadState(state)
+      return state.uiState
     case .mlxAudio:
       guard let version = model.mlxAudioVersion else { return .notDownloaded }
       let state = mlxModelManager.modelStates[version] ?? .notDownloaded
-      return mapMLXStateToDownloadState(state)
-    }
-  }
-
-  private func mapFluidStateToDownloadState(_ state: FluidAudioModelState) -> ModelDownloadState {
-    switch state {
-    case .notDownloaded: .notDownloaded
-    case .downloading(let progress, let downloadedBytes, let totalBytes, let speedBytesPerSecond): .downloading(progress: progress, downloadedBytes: downloadedBytes, totalBytes: totalBytes, speedBytesPerSecond: speedBytesPerSecond)
-    case .downloaded, .loading, .ready: .ready
-    case .failed: .failed
-    }
-  }
-
-  private func mapMLXStateToDownloadState(_ state: MLXAudioModelState) -> ModelDownloadState {
-    switch state {
-    case .notDownloaded: .notDownloaded
-    case .downloading(let progress, let downloadedBytes, let totalBytes, let speedBytesPerSecond): .downloading(progress: progress, downloadedBytes: downloadedBytes, totalBytes: totalBytes, speedBytesPerSecond: speedBytesPerSecond)
-    case .downloaded, .loading, .ready: .ready
-    case .failed: .failed
+      return state.uiState
     }
   }
 
@@ -886,9 +868,9 @@ struct DictationSpeechModelTab: View {
 
   // MARK: - Custom Model Helpers
 
-  private func customDownloadState(for model: CustomSpeechModel) -> ModelDownloadState {
+  private func customDownloadState(for model: CustomSpeechModel) -> UIDownloadState {
     if let state = mlxModelManager.customModelStates[model.id] {
-      return mapMLXStateToDownloadState(state)
+      return state.uiState
     }
     return model.isDownloaded ? .ready : .notDownloaded
   }
@@ -943,7 +925,7 @@ struct DictationSpeechModelTab: View {
 struct CustomModelCard: View {
   let model: CustomSpeechModel
   let isSelected: Bool
-  let downloadState: ModelDownloadState
+  let downloadState: UIDownloadState
   let onSelect: () -> Void
   let onDownload: () -> Void
   let onDelete: () -> Void
@@ -1064,22 +1046,13 @@ struct CustomModelCard: View {
   }
 }
 
-// MARK: - Model Download State
-
-enum ModelDownloadState: Equatable {
-  case notDownloaded
-  case downloading(progress: Double, downloadedBytes: Int64, totalBytes: Int64, speedBytesPerSecond: Double)
-  case ready
-  case failed
-}
-
 // MARK: - Model Card
 
 /// Full-width card for a built-in SpeechModel with rich metadata display
 struct ModelCard: View {
   let model: SpeechModel
   let isSelected: Bool
-  let downloadState: ModelDownloadState
+  let downloadState: UIDownloadState
   let onSelect: () -> Void
   let onDownload: () -> Void
 
@@ -2085,7 +2058,7 @@ private struct NewToneSheet: View {
 struct ModelDownloadRow: View {
   let title: String
   let description: String
-  let state: FluidAudioModelState
+  let state: ModelDownloadState
   let onDownload: () -> Void
   let onDelete: () -> Void
   let onRetry: () -> Void

@@ -13,9 +13,22 @@
 		5A9233152F24FE4400DC619E /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = 5A9232412F24CD3500DC619E /* GRDB */; };
 		5A9233162F24FE4400DC619E /* FluidAudio in Frameworks */ = {isa = PBXBuildFile; productRef = 5A9232512F24CD3500DC619E /* FluidAudio */; };
 		5A9233602F250A0000DC619E /* AnyLanguageModel in Frameworks */ = {isa = PBXBuildFile; productRef = 5A9233612F250A0000DC619E /* AnyLanguageModel */; };
+		8F9B73804E030D64A6527FE0 /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 338BBE031AFE27E739EBE10B /* Cocoa.framework */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		E7F50DA62433AA06D0733570 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 5A9232022F24CD3300DC619E /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5A9232092F24CD3300DC619E;
+			remoteInfo = VoxNotch;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		338BBE031AFE27E739EBE10B /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.0.sdk/System/Library/Frameworks/Cocoa.framework; sourceTree = DEVELOPER_DIR; };
+		530FC2B97091431E26EF0157 /* VoxNotchTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VoxNotchTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		5A92320A2F24CD3300DC619E /* VoxNotch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VoxNotch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -23,6 +36,11 @@
 		5A92320C2F24CD3300DC619E /* VoxNotch */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = VoxNotch;
+			sourceTree = "<group>";
+		};
+		AA3F2FBE00000001C750F068 /* VoxNotchTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = VoxNotchTests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -41,6 +59,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		64B304AD8624E37ECFE9789B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8F9B73804E030D64A6527FE0 /* Cocoa.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -48,7 +74,9 @@
 			isa = PBXGroup;
 			children = (
 				5A92320C2F24CD3300DC619E /* VoxNotch */,
+				AA3F2FBE00000001C750F068 /* VoxNotchTests */,
 				5A92320B2F24CD3300DC619E /* Products */,
+				CBAEFE7A5A72B56885670FEB /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -56,8 +84,25 @@
 			isa = PBXGroup;
 			children = (
 				5A92320A2F24CD3300DC619E /* VoxNotch.app */,
+				530FC2B97091431E26EF0157 /* VoxNotchTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		CBAEFE7A5A72B56885670FEB /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				E54BA5B16291A05BF02DAFBB /* OS X */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		E54BA5B16291A05BF02DAFBB /* OS X */ = {
+			isa = PBXGroup;
+			children = (
+				338BBE031AFE27E739EBE10B /* Cocoa.framework */,
+			);
+			name = "OS X";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -90,6 +135,27 @@
 			productName = VoxNotch;
 			productReference = 5A92320A2F24CD3300DC619E /* VoxNotch.app */;
 			productType = "com.apple.product-type.application";
+		};
+		AA3F2FBEE39400E4C750F068 /* VoxNotchTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 238A869F0E80A6D189CA4B89 /* Build configuration list for PBXNativeTarget "VoxNotchTests" */;
+			buildPhases = (
+				1EFDC03A1525343936CDE5FF /* Sources */,
+				64B304AD8624E37ECFE9789B /* Frameworks */,
+				4C540E47B4E554DB07ED1F64 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				38AECD4A3ED2B481C0C8673E /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				AA3F2FBE00000001C750F068 /* VoxNotchTests */,
+			);
+			name = VoxNotchTests;
+			productName = VoxNotchTests;
+			productReference = 530FC2B97091431E26EF0157 /* VoxNotchTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
@@ -127,11 +193,19 @@
 			projectRoot = "";
 			targets = (
 				5A9232092F24CD3300DC619E /* VoxNotch */,
+				AA3F2FBEE39400E4C750F068 /* VoxNotchTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		4C540E47B4E554DB07ED1F64 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		5A9232082F24CD3300DC619E /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -142,6 +216,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		1EFDC03A1525343936CDE5FF /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		5A9232062F24CD3300DC619E /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -151,7 +232,52 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		38AECD4A3ED2B481C0C8673E /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = VoxNotch;
+			target = 5A9232092F24CD3300DC619E /* VoxNotch */;
+			targetProxy = E7F50DA62433AA06D0733570 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		1BDE83C40954331C22E953C1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 7YC9932NHK;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = VoxNotchTests;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.voxnotch.tests;
+				PRODUCT_MODULE_NAME = VoxNotchTests;
+				PRODUCT_NAME = VoxNotchTests;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/VoxNotch.app/Contents/MacOS/VoxNotch";
+			};
+			name = Debug;
+		};
+		3FB19D8E2EA96C04266C7BEA /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = 7YC9932NHK;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = VoxNotchTests;
+				MACOSX_DEPLOYMENT_TARGET = 15.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.voxnotch.tests;
+				PRODUCT_MODULE_NAME = VoxNotchTests;
+				PRODUCT_NAME = VoxNotchTests;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 6.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/VoxNotch.app/Contents/MacOS/VoxNotch";
+			};
+			name = Release;
+		};
 		5A9232292F24CD3500DC619E /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -345,6 +471,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		238A869F0E80A6D189CA4B89 /* Build configuration list for PBXNativeTarget "VoxNotchTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3FB19D8E2EA96C04266C7BEA /* Release */,
+				1BDE83C40954331C22E953C1 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		5A9232052F24CD3300DC619E /* Build configuration list for PBXProject "VoxNotch" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

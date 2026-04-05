@@ -68,34 +68,7 @@ enum MLXAudioModelVersion: String, CaseIterable, Identifiable, Sendable {
   }
 }
 
-// MARK: - MLX Audio Model State
 
-/// State of an MLX Audio model
-enum MLXAudioModelState: Equatable, Sendable {
-  case notDownloaded
-  case downloading(progress: Double, downloadedBytes: Int64, totalBytes: Int64, speedBytesPerSecond: Double)
-  case downloaded
-  case loading
-  case ready
-  case failed(message: String)
-
-  var isReady: Bool {
-    if case .ready = self { return true }
-    return false
-  }
-
-  var isDownloading: Bool {
-    if case .downloading = self { return true }
-    return false
-  }
-
-  var isDownloaded: Bool {
-    switch self {
-    case .downloaded, .ready, .loading: return true
-    default: return false
-    }
-  }
-}
 
 // MARK: - MLX Audio Model Manager
 
@@ -112,10 +85,10 @@ final class MLXAudioModelManager: @unchecked Sendable {
   private let logger = Logger(subsystem: "com.voxnotch", category: "MLXAudioModelManager")
 
   /// Current state of each built-in model version
-  private(set) var modelStates: [MLXAudioModelVersion: MLXAudioModelState] = [:]
+  private(set) var modelStates: [MLXAudioModelVersion: ModelDownloadState] = [:]
 
   /// Current state of each custom model (keyed by CustomSpeechModel.id)
-  private(set) var customModelStates: [String: MLXAudioModelState] = [:]
+  private(set) var customModelStates: [String: ModelDownloadState] = [:]
 
   /// Currently loaded built-in model version (nil when a custom model is loaded)
   private(set) var loadedVersion: MLXAudioModelVersion?
@@ -141,7 +114,7 @@ final class MLXAudioModelManager: @unchecked Sendable {
   #endif
 
   /// Observable state for the Source Separation aligner model
-  private(set) var alignerModelState: MLXAudioModelState = .notDownloaded
+  private(set) var alignerModelState: ModelDownloadState = .notDownloaded
 
   /// HuggingFace repo ID for the forced aligner model (not an ASR model)
   private static let alignerRepoID = "mlx-community/Qwen3-ForcedAligner-0.6B-4bit"
@@ -210,33 +183,19 @@ final class MLXAudioModelManager: @unchecked Sendable {
 
     do {
       #if canImport(MLXAudioSTT)
-      /// Poll directory size every 2s to show progress without excessive I/O
       let cacheURL = mlxAudioCacheURL(for: version)
       let expectedBytes = Int64(version.estimatedSizeMB) * 1_000_000
-      let pollingTask = Task {
-        var lastBytes: Int64 = 0
-        var lastTime = Date()
-
-        while !Task.isCancelled {
-          try? await Task.sleep(nanoseconds: 2_000_000_000)
-          let current = directorySize(at: cacheURL)
-          guard current > 0, expectedBytes > 0 else { continue }
-          
-          let now = Date()
-          let timeDiff = now.timeIntervalSince(lastTime)
-          let bytesDiff = current - lastBytes
-          let speed = timeDiff > 0 ? Double(bytesDiff) / timeDiff : 0
-          
-          lastBytes = current
-          lastTime = now
-          
-          let p = min(Double(current) / Double(expectedBytes), 0.95)
-          await MainActor.run {
-            if case .downloading = self.modelStates[version] {
-              self.modelStates[version] = .downloading(progress: p, downloadedBytes: current, totalBytes: expectedBytes, speedBytesPerSecond: speed)
-              self.downloadProgress = p
-            }
-          }
+      let pollingTask = DownloadProgressTracker.poll(
+        directory: cacheURL,
+        expectedBytes: expectedBytes
+      ) { [weak self] progress, downloadedBytes, totalBytes, speed in
+        guard let self else { return }
+        if case .downloading = self.modelStates[version] {
+          self.modelStates[version] = .downloading(
+            progress: progress, downloadedBytes: downloadedBytes,
+            totalBytes: totalBytes, speedBytesPerSecond: speed
+          )
+          self.downloadProgress = progress
         }
       }
       defer { pollingTask.cancel() }
@@ -364,31 +323,18 @@ final class MLXAudioModelManager: @unchecked Sendable {
 
     do {
       #if canImport(MLXAudioSTT)
-      /// Poll directory size every 2s to show progress without excessive I/O
       let cacheURL = mlxAudioCacheURL(repoID: model.hfRepoID)
       let expectedBytes: Int64 = 3_400_000_000
-      let pollingTask = Task {
-        var lastBytes: Int64 = 0
-        var lastTime = Date()
-
-        while !Task.isCancelled {
-          try? await Task.sleep(nanoseconds: 2_000_000_000)
-          let current = directorySize(at: cacheURL)
-          guard current > 0 else { continue }
-          
-          let now = Date()
-          let timeDiff = now.timeIntervalSince(lastTime)
-          let bytesDiff = current - lastBytes
-          let speed = timeDiff > 0 ? Double(bytesDiff) / timeDiff : 0
-          
-          lastBytes = current
-          lastTime = now
-          
-          await MainActor.run {
-            if case .downloading = self.customModelStates[id] {
-              self.customModelStates[id] = .downloading(progress: min(Double(current) / Double(expectedBytes), 0.95), downloadedBytes: current, totalBytes: expectedBytes, speedBytesPerSecond: speed)
-            }
-          }
+      let pollingTask = DownloadProgressTracker.poll(
+        directory: cacheURL,
+        expectedBytes: expectedBytes
+      ) { [weak self] progress, downloadedBytes, totalBytes, speed in
+        guard let self else { return }
+        if case .downloading = self.customModelStates[id] {
+          self.customModelStates[id] = .downloading(
+            progress: progress, downloadedBytes: downloadedBytes,
+            totalBytes: totalBytes, speedBytesPerSecond: speed
+          )
         }
       }
       defer { pollingTask.cancel() }
@@ -539,8 +485,16 @@ final class MLXAudioModelManager: @unchecked Sendable {
 
   /// Delete all downloaded MLX Audio models
   func deleteAllModels() throws {
+    var errors: [String] = []
     for version in MLXAudioModelVersion.allCases {
-      try? deleteModel(version: version)
+      do {
+        try deleteModel(version: version)
+      } catch {
+        errors.append("\(version.rawValue): \(error.localizedDescription)")
+      }
+    }
+    if !errors.isEmpty {
+      logger.error("Some models failed to delete: \(errors.joined(separator: "; "))")
     }
     logger.info("Deleted all MLX Audio models")
   }
@@ -549,7 +503,7 @@ final class MLXAudioModelManager: @unchecked Sendable {
   func totalStorageUsedBytes() -> Int64 {
     var total: Int64 = 0
     for version in MLXAudioModelVersion.allCases {
-      total += directorySize(at: mlxAudioCacheURL(for: version))
+      total += DownloadProgressTracker.directorySize(at: mlxAudioCacheURL(for: version))
     }
     return total
   }
@@ -627,33 +581,18 @@ final class MLXAudioModelManager: @unchecked Sendable {
 
     #if canImport(MLXAudioSTT)
     do {
-      // Poll progress while fromPretrained downloads
       let cacheURL = mlxAudioCacheURL(repoID: Self.alignerRepoID)
       let expectedBytes: Int64 = 350_000_000
-      let pollingTask = Task {
-        var lastBytes: Int64 = 0
-        var lastTime = Date()
-        while !Task.isCancelled {
-          try? await Task.sleep(nanoseconds: 2_000_000_000)
-          let current = directorySize(at: cacheURL)
-          guard current > 0 else { continue }
-          let now = Date()
-          let timeDiff = now.timeIntervalSince(lastTime)
-          let bytesDiff = current - lastBytes
-          let speed = timeDiff > 0 ? Double(bytesDiff) / timeDiff : 0
-          lastBytes = current
-          lastTime = now
-          let p = min(Double(current) / Double(expectedBytes), 0.95)
-          await MainActor.run {
-            if case .downloading = self.alignerModelState {
-              self.alignerModelState = .downloading(
-                progress: p,
-                downloadedBytes: current,
-                totalBytes: expectedBytes,
-                speedBytesPerSecond: speed
-              )
-            }
-          }
+      let pollingTask = DownloadProgressTracker.poll(
+        directory: cacheURL,
+        expectedBytes: expectedBytes
+      ) { [weak self] progress, downloadedBytes, totalBytes, speed in
+        guard let self else { return }
+        if case .downloading = self.alignerModelState {
+          self.alignerModelState = .downloading(
+            progress: progress, downloadedBytes: downloadedBytes,
+            totalBytes: totalBytes, speedBytesPerSecond: speed
+          )
         }
       }
       defer { pollingTask.cancel() }
@@ -675,25 +614,6 @@ final class MLXAudioModelManager: @unchecked Sendable {
     #endif
   }
 
-  /// Calculate size of a directory in bytes
-  private func directorySize(at url: URL) -> Int64 {
-    let fileManager = FileManager.default
-    guard fileManager.fileExists(atPath: url.path) else { return 0 }
-
-    guard let enumerator = fileManager.enumerator(
-      at: url,
-      includingPropertiesForKeys: [.fileSizeKey],
-      options: [.skipsHiddenFiles]
-    ) else { return 0 }
-
-    var size: Int64 = 0
-    for case let fileURL as URL in enumerator {
-      if let fileSize = try? fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize {
-        size += Int64(fileSize)
-      }
-    }
-    return size
-  }
 }
 
 // MARK: - MLX Audio Errors
@@ -721,16 +641,3 @@ enum MLXAudioError: LocalizedError {
   }
 }
 
-// MARK: - State Mapping Helper
-
-/// Helper to convert MLXAudioModelState to FluidAudioModelState for UI compatibility
-func mapToFluidState(_ mlxState: MLXAudioModelState) -> FluidAudioModelState {
-  switch mlxState {
-  case .notDownloaded: return .notDownloaded
-  case .downloading(let p, let d, let t, let s): return .downloading(progress: p, downloadedBytes: d, totalBytes: t, speedBytesPerSecond: s)
-  case .downloaded: return .downloaded
-  case .loading: return .loading
-  case .ready: return .ready
-  case .failed(let msg): return .failed(message: msg)
-  }
-}
