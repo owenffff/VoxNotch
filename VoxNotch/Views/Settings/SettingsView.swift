@@ -1272,6 +1272,7 @@ struct ModelBadge: View {
 struct DictationOutputTab: View {
 
   @Bindable private var settings = SettingsManager.shared
+  @State private var showAdvancedOutput = false
   var body: some View {
     Form {
       Section {
@@ -1286,66 +1287,70 @@ struct DictationOutputTab: View {
         Text("Delivery")
       }
 
-      // MARK: Sound Feedback
-      Section {
-        Toggle("Play sound on success", isOn: $settings.successSoundEnabled)
-          .help("Play an audio cue when transcription is delivered or copied to clipboard")
+      // MARK: Advanced
+      DisclosureGroup("Advanced", isExpanded: $showAdvancedOutput) {
+        VStack(alignment: .leading, spacing: 8) {
+          Text("Sound Feedback")
+            .font(.headline)
+          Toggle("Play sound on success", isOn: $settings.successSoundEnabled)
+            .help("Play an audio cue when transcription is delivered or copied to clipboard")
 
-        if settings.successSoundEnabled {
-          HStack {
-            Text("Sound")
-            Spacer()
-            Text(successSoundDisplayName)
-              .foregroundStyle(.secondary)
+          if settings.successSoundEnabled {
+            HStack {
+              Text("Sound")
+              Spacer()
+              Text(successSoundDisplayName)
+                .foregroundStyle(.secondary)
 
-            Button("Change\u{2026}") {
-              pickCustomSound()
-            }
-            .buttonStyle(.borderless)
-
-            if !settings.customSuccessSoundPath.isEmpty {
-              Button {
-                settings.customSuccessSoundPath = ""
-              } label: {
-                Image(systemName: "xmark.circle.fill")
-                  .foregroundStyle(.secondary)
+              Button("Change\u{2026}") {
+                pickCustomSound()
               }
-              .buttonStyle(.plain)
-              .help("Reset to default system sound")
-            }
-          }
+              .buttonStyle(.borderless)
 
-          HStack {
-            Button {
-              SoundManager.shared.previewSound()
-            } label: {
-              Label("Preview", systemImage: "speaker.wave.2")
-                .font(.caption)
+              if !settings.customSuccessSoundPath.isEmpty {
+                Button {
+                  settings.customSuccessSoundPath = ""
+                } label: {
+                  Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Reset to default system sound")
+              }
             }
-            .buttonStyle(.borderless)
 
-            Spacer()
+            HStack {
+              Button {
+                SoundManager.shared.previewSound()
+              } label: {
+                Label("Preview", systemImage: "speaker.wave.2")
+                  .font(.caption)
+              }
+              .buttonStyle(.borderless)
 
-            Button {
-              NSWorkspace.shared.open(SoundManager.shared.soundsDirectory)
-            } label: {
-              Label("Open Sounds Folder", systemImage: "folder")
-                .font(.caption)
+              Spacer()
+
+              Button {
+                NSWorkspace.shared.open(SoundManager.shared.soundsDirectory)
+              } label: {
+                Label("Open Sounds Folder", systemImage: "folder")
+                  .font(.caption)
+              }
+              .buttonStyle(.borderless)
             }
-            .buttonStyle(.borderless)
           }
         }
-      } header: {
-        Text("Sound Feedback")
-      }
 
-      Section {
-        Toggle("Remove filler words", isOn: $settings.removeFillerWords)
-          .help("Automatically strip um, uh, er, ah, hmm from transcriptions (no AI required)")
-        Toggle("Normalize numbers & currency", isOn: $settings.applyITN)
-          .help("Convert spoken numbers to written form: \"two hundred\" \u{2192} \"200\", \"five dollars\" \u{2192} \"$5\" (no AI required)")
-      } header: {
-        Text("Text Cleanup")
+        Divider()
+
+        VStack(alignment: .leading, spacing: 8) {
+          Text("Text Cleanup")
+            .font(.headline)
+          Toggle("Remove filler words", isOn: $settings.removeFillerWords)
+            .help("Automatically strip um, uh, er, ah, hmm from transcriptions (no AI required)")
+          Toggle("Normalize numbers & currency", isOn: $settings.applyITN)
+            .help("Convert spoken numbers to written form: \"two hundred\" \u{2192} \"200\", \"five dollars\" \u{2192} \"$5\" (no AI required)")
+        }
       }
 
     }
