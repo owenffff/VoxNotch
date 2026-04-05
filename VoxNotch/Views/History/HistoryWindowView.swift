@@ -33,6 +33,11 @@ struct HistoryWindowView: View {
     .task {
       await loadTranscriptions()
     }
+    .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+      Task {
+        await loadTranscriptions()
+      }
+    }
     .onChange(of: searchText) { _, newValue in
       Task {
         await filterTranscriptions(query: newValue)
