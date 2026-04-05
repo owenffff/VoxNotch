@@ -11,15 +11,19 @@ struct CompactTrailingView: View {
 
   private let appState = AppState.shared
 
-  /// Single animation driver derived from AppState booleans, avoiding
-  /// five competing `.animation()` modifiers.
+  /// Single animation driver derived from AppState, avoiding
+  /// competing `.animation()` modifiers.
   private var displayPhase: CompactPhase {
-    if appState.isModelSelecting   { return .modelSelecting }
-    if appState.isToneSelecting    { return .toneSelecting }
-    if appState.isRecording        { return .recording }
-    if appState.isWarmingUp        { return .warmingUp }
-    if appState.isTranscribing     { return .transcribing }
-    if appState.isProcessingLLM    { return .processingLLM }
+    switch appState.dictationPhase {
+    case .modelSelecting: return .modelSelecting
+    case .toneSelecting:  return .toneSelecting
+    case .recording:      return .recording
+    case .warmingUp:      return .warmingUp
+    case .transcribing:   return .transcribing
+    case .processingLLM:  return .processingLLM
+    case .outputting, .error, .idle:
+      break
+    }
     if appState.isDownloadingModel { return .downloading }
     if appState.modelsNeeded       { return .modelsNeeded }
     if appState.lastError != nil   { return .error }
@@ -36,17 +40,17 @@ struct CompactTrailingView: View {
 
   @ViewBuilder
   private var content: some View {
-    if appState.isModelSelecting {
+    if case .modelSelecting = appState.dictationPhase {
       modelName
-    } else if appState.isToneSelecting {
+    } else if case .toneSelecting = appState.dictationPhase {
       toneName
-    } else if appState.isRecording {
+    } else if case .recording = appState.dictationPhase {
       durationTimer
-    } else if appState.isWarmingUp {
+    } else if case .warmingUp = appState.dictationPhase {
       statusText("Warming up...")
-    } else if appState.isTranscribing {
+    } else if case .transcribing = appState.dictationPhase {
       statusText("Transcribing...")
-    } else if appState.isProcessingLLM {
+    } else if case .processingLLM = appState.dictationPhase {
       statusText("Processing...")
     } else if appState.isDownloadingModel {
       percentageText

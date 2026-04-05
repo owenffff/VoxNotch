@@ -288,7 +288,7 @@ final class QuickDictationController {
         if !isModelDownloaded {
             print("QuickDictationController: Model not downloaded, directing to Settings")
             let message: String
-            if SettingsManager.shared.onboardingModelState == OnboardingStepState.skipped.rawValue {
+            if SettingsManager.shared.onboardingModelState == .skipped {
                 message = "Download a speech model in Settings to start dictating"
             } else {
                 message = "Not downloaded: \(modelDisplayName)"
@@ -501,89 +501,15 @@ extension QuickDictationController: DictationStateMachineDelegate {
             appState.recordingDuration = 0
         }
 
-        // Update app state — wrapped in withAnimation so all displayPhase
+        // Update app state — wrapped in withAnimation so dictationPhase
         // transitions in the notch get smooth crossfade.
         withAnimation(.smooth(duration: 0.4)) {
-            switch newState {
-            case .idle:
-                appState.isRecording = false
-                appState.isWarmingUp = false
-                appState.isTranscribing = false
-                appState.isProcessingLLM = false
-                appState.silenceWarningActive = false
-                appState.isModelSelecting = false
-                appState.isToneSelecting = false
+            appState.dictationPhase = newState
+            appState.silenceWarningActive = false
 
-            case .recording:
-                appState.isRecording = true
-                appState.isWarmingUp = false
-                appState.isTranscribing = false
-                appState.silenceWarningActive = false
-                appState.isModelSelecting = false
-                appState.isToneSelecting = false
-
-            case .warmingUp:
-                appState.isRecording = false
-                appState.isWarmingUp = true
-                appState.isTranscribing = false
-                appState.silenceWarningActive = false
-                appState.isModelSelecting = false
-                appState.isToneSelecting = false
-
-            case .transcribing:
-                appState.isRecording = false
-                appState.isWarmingUp = false
-                appState.isTranscribing = true
-                appState.silenceWarningActive = false
-                appState.isModelSelecting = false
-                appState.isToneSelecting = false
-
-            case .processingLLM:
-                appState.isRecording = false
-                appState.isWarmingUp = false
-                appState.isTranscribing = false
-                appState.isProcessingLLM = true
-                appState.silenceWarningActive = false
-                appState.isModelSelecting = false
-                appState.isToneSelecting = false
-
-            case .outputting:
-                appState.isRecording = false
-                appState.isWarmingUp = false
-                appState.isTranscribing = false
-                appState.isProcessingLLM = false
-                appState.silenceWarningActive = false
-                appState.isModelSelecting = false
-                appState.isToneSelecting = false
-
-            case .modelSelecting:
-                appState.isRecording = false
-                appState.isWarmingUp = false
-                appState.isTranscribing = false
-                appState.isProcessingLLM = false
-                appState.silenceWarningActive = false
-                appState.isModelSelecting = true
-                appState.isToneSelecting = false
-
-            case .toneSelecting:
-                appState.isRecording = false
-                appState.isWarmingUp = false
-                appState.isTranscribing = false
-                appState.isProcessingLLM = false
-                appState.silenceWarningActive = false
-                appState.isModelSelecting = false
-                appState.isToneSelecting = true
-
-            case .error(let error):
-                appState.isRecording = false
-                appState.isWarmingUp = false
-                appState.isTranscribing = false
-                appState.isProcessingLLM = false
+            if case .error(let error) = newState {
                 appState.lastError = error.localizedDescription
                 appState.lastErrorRecovery = (error as? LocalizedError)?.recoverySuggestion
-                appState.silenceWarningActive = false
-                appState.isModelSelecting = false
-                appState.isToneSelecting = false
             }
         }
 

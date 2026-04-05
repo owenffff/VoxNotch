@@ -7,14 +7,6 @@
 
 import SwiftUI
 
-// MARK: - Onboarding Step State
-
-enum OnboardingStepState: String {
-  case pending
-  case completed
-  case skipped
-}
-
 // MARK: - Onboarding Step
 
 enum OnboardingStep: Int, CaseIterable {
@@ -511,17 +503,17 @@ struct OnboardingView: View {
   // MARK: - Complete Step
 
   private var hasSkippedSteps: Bool {
-    SettingsManager.shared.onboardingPermissionsState == OnboardingStepState.skipped.rawValue
-      || SettingsManager.shared.onboardingModelState == OnboardingStepState.skipped.rawValue
-      || SettingsManager.shared.onboardingTutorialState == OnboardingStepState.skipped.rawValue
+    SettingsManager.shared.onboardingPermissionsState == .skipped
+      || SettingsManager.shared.onboardingModelState == .skipped
+      || SettingsManager.shared.onboardingTutorialState == .skipped
   }
 
   private var skippedStepMessages: [String] {
     var messages: [String] = []
-    if SettingsManager.shared.onboardingPermissionsState == OnboardingStepState.skipped.rawValue {
+    if SettingsManager.shared.onboardingPermissionsState == .skipped {
       messages.append("Grant Microphone and Accessibility permissions in Settings.")
     }
-    if SettingsManager.shared.onboardingModelState == OnboardingStepState.skipped.rawValue {
+    if SettingsManager.shared.onboardingModelState == .skipped {
       messages.append("Download a speech model in Settings before dictating.")
     }
     return messages
@@ -635,11 +627,11 @@ struct OnboardingView: View {
   private func skipCurrentStep() {
     switch currentStep {
     case .permissions:
-      SettingsManager.shared.onboardingPermissionsState = OnboardingStepState.skipped.rawValue
+      SettingsManager.shared.onboardingPermissionsState = .skipped
     case .model:
-      SettingsManager.shared.onboardingModelState = OnboardingStepState.skipped.rawValue
+      SettingsManager.shared.onboardingModelState = .skipped
     case .tutorial:
-      SettingsManager.shared.onboardingTutorialState = OnboardingStepState.skipped.rawValue
+      SettingsManager.shared.onboardingTutorialState = .skipped
     case .welcome, .complete:
       break
     }
@@ -649,11 +641,11 @@ struct OnboardingView: View {
   private func completeCurrentStep() {
     switch currentStep {
     case .permissions:
-      SettingsManager.shared.onboardingPermissionsState = OnboardingStepState.completed.rawValue
+      SettingsManager.shared.onboardingPermissionsState = .completed
     case .model:
-      SettingsManager.shared.onboardingModelState = OnboardingStepState.completed.rawValue
+      SettingsManager.shared.onboardingModelState = .completed
     case .tutorial:
-      SettingsManager.shared.onboardingTutorialState = OnboardingStepState.completed.rawValue
+      SettingsManager.shared.onboardingTutorialState = .completed
     case .welcome, .complete:
       break
     }

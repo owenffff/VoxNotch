@@ -15,12 +15,14 @@ final class AppState {
 
   static let shared = AppState()
 
-  // MARK: - Recording State
+  // MARK: - Dictation Phase
 
-  var isRecording: Bool = false
-  var isTranscribing: Bool = false
-  var isWarmingUp: Bool = false
-  var isProcessingLLM: Bool = false
+  /// Single source of truth for the dictation flow phase.
+  /// Replaces the individual isRecording / isTranscribing / … booleans.
+  var dictationPhase: DictationState = .idle
+
+  // MARK: - Download State
+
   var isDownloadingModel: Bool = false
 
   /// Model download progress (0.0 to 1.0)
@@ -83,9 +85,6 @@ final class AppState {
 
   // MARK: - Model Selection State
 
-  /// Whether the user is cycling through models via hotkey + arrow keys
-  var isModelSelecting: Bool = false
-
   /// The models shown in the cycling UI (populated on entry; includes custom models)
   var modelSelectionCandidates: [AnyModel] = []
 
@@ -93,9 +92,6 @@ final class AppState {
   var modelSelectionIndex: Int = 0
 
   // MARK: - Tone Selection State
-
-  /// Whether the user is cycling through tones via hotkey + up/down arrow keys
-  var isToneSelecting: Bool = false
 
   /// The tones shown in the cycling UI (populated from pinned tone IDs on entry)
   var toneSelectionCandidates: [ToneTemplate] = []
@@ -132,27 +128,16 @@ final class AppState {
   }
 
   var status: AppStatus {
-    if lastError != nil {
-      return .error
+    if lastError != nil { return .error }
+    if isDownloadingModel { return .downloading }
+    switch dictationPhase {
+    case .processingLLM:  return .processing
+    case .warmingUp:      return .warmingUp
+    case .transcribing:   return .transcribing
+    case .recording:      return .recording
+    default:              break
     }
-    if isDownloadingModel {
-      return .downloading
-    }
-    if isProcessingLLM {
-      return .processing
-    }
-    if isWarmingUp {
-      return .warmingUp
-    }
-    if isTranscribing {
-      return .transcribing
-    }
-    if isRecording {
-      return .recording
-    }
-    if modelsNeeded {
-      return .modelsNeeded
-    }
+    if modelsNeeded { return .modelsNeeded }
     return .ready
   }
 
@@ -180,10 +165,7 @@ final class AppState {
   }
 
   func reset() {
-    isRecording = false
-    isTranscribing = false
-    isWarmingUp = false
-    isProcessingLLM = false
+    dictationPhase = .idle
     isDownloadingModel = false
     modelDownloadProgress = 0.0
     isModelReady = false
@@ -201,10 +183,8 @@ final class AppState {
     silenceWarningActive = false
     recordingDuration = 0
     noMicrophoneDetected = false
-    isModelSelecting = false
     modelSelectionCandidates = []
     modelSelectionIndex = 0
-    isToneSelecting = false
     toneSelectionCandidates = []
     toneSelectionIndex = 0
     navigateToSettingsPanel = nil

@@ -201,12 +201,9 @@ final class QuickDictationControllerTests: XCTestCase {
 
         // Error is a terminal state — AppState should reflect it
         XCTAssertNotNil(appState.lastError)
-        XCTAssertFalse(appState.isRecording)
-        XCTAssertFalse(appState.isWarmingUp)
-        XCTAssertFalse(appState.isTranscribing)
-        XCTAssertFalse(appState.isProcessingLLM)
-        XCTAssertFalse(appState.isModelSelecting)
-        XCTAssertFalse(appState.isToneSelecting)
+        if case .error = appState.dictationPhase {} else {
+            XCTFail("Expected dictationPhase to be .error, got \(appState.dictationPhase)")
+        }
     }
 
     func testDelegateSyncsIdleAfterSuccess() async throws {
@@ -231,12 +228,9 @@ final class QuickDictationControllerTests: XCTestCase {
         controller.retryTranscription()
         try await Task.sleep(for: .milliseconds(300))
 
-        // After success, should be back to idle — all flags false
+        // After success, should be back to idle
         XCTAssertEqual(controller.state, .idle)
-        XCTAssertFalse(appState.isRecording)
-        XCTAssertFalse(appState.isWarmingUp)
-        XCTAssertFalse(appState.isTranscribing)
-        XCTAssertFalse(appState.isProcessingLLM)
+        XCTAssertEqual(appState.dictationPhase, .idle)
     }
 
     // MARK: - onStateChange callback

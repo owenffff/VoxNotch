@@ -408,19 +408,19 @@ final class SettingsManager {
   }
 
   /// Per-step onboarding state (pending / completed / skipped)
-  var onboardingPermissionsState: String {
-    get { UserDefaults.standard.string(forKey: Keys.onboardingPermissionsState) ?? "pending" }
-    set { UserDefaults.standard.set(newValue, forKey: Keys.onboardingPermissionsState) }
+  var onboardingPermissionsState: OnboardingStepState {
+    get { OnboardingStepState(rawValue: UserDefaults.standard.string(forKey: Keys.onboardingPermissionsState) ?? "") ?? .pending }
+    set { UserDefaults.standard.set(newValue.rawValue, forKey: Keys.onboardingPermissionsState) }
   }
 
-  var onboardingModelState: String {
-    get { UserDefaults.standard.string(forKey: Keys.onboardingModelState) ?? "pending" }
-    set { UserDefaults.standard.set(newValue, forKey: Keys.onboardingModelState) }
+  var onboardingModelState: OnboardingStepState {
+    get { OnboardingStepState(rawValue: UserDefaults.standard.string(forKey: Keys.onboardingModelState) ?? "") ?? .pending }
+    set { UserDefaults.standard.set(newValue.rawValue, forKey: Keys.onboardingModelState) }
   }
 
-  var onboardingTutorialState: String {
-    get { UserDefaults.standard.string(forKey: Keys.onboardingTutorialState) ?? "pending" }
-    set { UserDefaults.standard.set(newValue, forKey: Keys.onboardingTutorialState) }
+  var onboardingTutorialState: OnboardingStepState {
+    get { OnboardingStepState(rawValue: UserDefaults.standard.string(forKey: Keys.onboardingTutorialState) ?? "") ?? .pending }
+    set { UserDefaults.standard.set(newValue.rawValue, forKey: Keys.onboardingTutorialState) }
   }
 
   // MARK: - Initialization

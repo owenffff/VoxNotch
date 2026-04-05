@@ -286,7 +286,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Update recording item title (tag 104)
         if let recordItem = menu.item(withTag: 104) {
-            recordItem.title = appState.isRecording ? "Stop Recording" : "Start Recording"
+            recordItem.title = appState.dictationPhase == .recording ? "Stop Recording" : "Start Recording"
         }
     }
 

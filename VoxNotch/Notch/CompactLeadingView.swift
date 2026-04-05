@@ -11,14 +11,17 @@ struct CompactLeadingView: View {
 
   private let appState = AppState.shared
 
-  /// Single animation driver derived from AppState booleans, avoiding
-  /// five competing `.animation()` modifiers.
+  /// Single animation driver derived from AppState, avoiding
+  /// competing `.animation()` modifiers.
   private var displayPhase: CompactPhase {
-    if appState.isModelSelecting   { return .modelSelecting }
-    if appState.isToneSelecting    { return .toneSelecting }
-    if appState.isRecording        { return .recording }
-    if appState.isWarmingUp || appState.isTranscribing || appState.isProcessingLLM {
+    switch appState.dictationPhase {
+    case .modelSelecting: return .modelSelecting
+    case .toneSelecting:  return .toneSelecting
+    case .recording:      return .recording
+    case .warmingUp, .transcribing, .processingLLM:
       return .processing
+    case .outputting, .error, .idle:
+      break
     }
     if appState.isDownloadingModel { return .downloading }
     if appState.modelsNeeded       { return .modelsNeeded }
@@ -36,13 +39,17 @@ struct CompactLeadingView: View {
 
   @ViewBuilder
   private var content: some View {
-    if appState.isModelSelecting {
+    if case .modelSelecting = appState.dictationPhase {
       arrowHints(horizontal: true)
-    } else if appState.isToneSelecting {
+    } else if case .toneSelecting = appState.dictationPhase {
       arrowHints(horizontal: false)
-    } else if appState.isRecording {
+    } else if case .recording = appState.dictationPhase {
       recordingLeading
-    } else if appState.isWarmingUp || appState.isTranscribing || appState.isProcessingLLM {
+    } else if case .warmingUp = appState.dictationPhase {
+      spinner
+    } else if case .transcribing = appState.dictationPhase {
+      spinner
+    } else if case .processingLLM = appState.dictationPhase {
       spinner
     } else if appState.isDownloadingModel {
       progressBar

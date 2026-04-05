@@ -12,15 +12,19 @@ struct NotchExpandedFallbackView: View {
   private let appState = AppState.shared
 
   /// Single value that captures which phase the UI is in, used as the
-  /// sole animation driver so that simultaneous boolean changes don't
+  /// sole animation driver so that simultaneous property changes don't
   /// produce competing animations.
   private var displayPhase: DisplayPhase {
-    if appState.isModelSelecting      { return .modelSelecting }
-    if appState.isToneSelecting       { return .toneSelecting }
-    if appState.isRecording           { return .recording }
-    if appState.isWarmingUp           { return .warmingUp }
-    if appState.isTranscribing        { return .transcribing }
-    if appState.isProcessingLLM       { return .processingLLM }
+    switch appState.dictationPhase {
+    case .modelSelecting: return .modelSelecting
+    case .toneSelecting:  return .toneSelecting
+    case .recording:      return .recording
+    case .warmingUp:      return .warmingUp
+    case .transcribing:   return .transcribing
+    case .processingLLM:  return .processingLLM
+    case .outputting, .error, .idle:
+      break
+    }
     if appState.isDownloadingModel    { return .downloading }
     if appState.modelsNeeded          { return .modelsNeeded }
     if appState.lastError != nil      { return .error }
@@ -42,17 +46,17 @@ struct NotchExpandedFallbackView: View {
 
   @ViewBuilder
   private var content: some View {
-    if appState.isModelSelecting {
+    if case .modelSelecting = appState.dictationPhase {
       modelSelectionView
-    } else if appState.isToneSelecting {
+    } else if case .toneSelecting = appState.dictationPhase {
       toneSelectionView
-    } else if appState.isRecording {
+    } else if case .recording = appState.dictationPhase {
       recordingView
-    } else if appState.isWarmingUp {
+    } else if case .warmingUp = appState.dictationPhase {
       spinnerRow(title: "Warming up…")
-    } else if appState.isTranscribing {
+    } else if case .transcribing = appState.dictationPhase {
       spinnerRow(title: "Transcribing…")
-    } else if appState.isProcessingLLM {
+    } else if case .processingLLM = appState.dictationPhase {
       spinnerRow(title: "Processing…")
     } else if appState.isDownloadingModel {
       downloadRow

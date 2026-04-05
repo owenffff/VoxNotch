@@ -126,7 +126,7 @@ final class DictationStateMachine {
     ///     idle → idle | recording | modelSelecting | toneSelecting | warmingUp
     ///     recording → warmingUp | transcribing | idle | error
     ///     warmingUp → transcribing | idle | error
-    ///     transcribing → processingLLM | idle | error
+    ///     transcribing → processingLLM | outputting | idle | error
     ///     processingLLM → outputting | idle
     ///     outputting → idle | error
     ///     modelSelecting → idle | toneSelecting
@@ -158,7 +158,7 @@ final class DictationStateMachine {
             }
         case .transcribing:
             switch newState {
-            case .processingLLM, .idle, .error:
+            case .processingLLM, .outputting, .idle, .error:
                 return true
             default:
                 return false
