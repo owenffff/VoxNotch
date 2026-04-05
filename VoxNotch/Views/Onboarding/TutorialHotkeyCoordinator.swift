@@ -3,7 +3,8 @@
 //  VoxNotch
 //
 //  Coordinates hotkey detection for the interactive tutorial step.
-//  Temporarily swaps HotkeyManager callbacks, then restores them on dismiss.
+//  Starts the real dictation pipeline so the notch responds authentically,
+//  then wraps HotkeyManager callbacks to also update the tutorial checklist.
 //
 
 import Foundation
@@ -42,12 +43,12 @@ final class TutorialHotkeyCoordinator {
 
   // MARK: - Private State
 
+  /// Saved QDC callbacks — forwarded during tutorial so real behavior works
   private var savedOnHotkeyEvent: HotkeyManager.HotkeyCallback?
   private var savedOnModelSwitchKey: ((Int) -> Void)?
   private var savedOnToneSwitchKey: ((Int) -> Void)?
   private var savedOnEscapeKey: (() -> Void)?
 
-  private var didStartListening = false
   private var isActive = false
   private var currentIndex = 0
   private var feedbackTimer: Timer?
@@ -58,30 +59,34 @@ final class TutorialHotkeyCoordinator {
     guard !isActive else { return }
     isActive = true
 
+    // Start the full dictation pipeline so the notch responds to hotkey events.
+    // These calls are idempotent — safe to call again in startNormalOperation().
+    AudioCaptureManager.shared.restoreDeviceSelection()
+    AudioCaptureManager.shared.warmUp()
+    QuickDictationController.shared.start()
+
     let hk = HotkeyManager.shared
 
-    // Save existing callbacks
+    // Save QDC's callbacks (just installed by QDC.init or already running)
     savedOnHotkeyEvent = hk.onHotkeyEvent
     savedOnModelSwitchKey = hk.onModelSwitchKey
     savedOnToneSwitchKey = hk.onToneSwitchKey
     savedOnEscapeKey = hk.onEscapeKey
 
-    // Start listening if not already active
-    if !hk.isListening {
-      didStartListening = hk.startListening()
-    }
-
-    // Install tutorial callbacks
+    // Install wrappers: forward to QDC (real behavior) + update checklist
     hk.onHotkeyEvent = { [weak self] event in
+      self?.savedOnHotkeyEvent?(event)
       self?.handleHotkeyEvent(event)
     }
     hk.onModelSwitchKey = { [weak self] direction in
+      self?.savedOnModelSwitchKey?(direction)
       self?.handleModelSwitch(direction)
     }
     hk.onToneSwitchKey = { [weak self] direction in
+      self?.savedOnToneSwitchKey?(direction)
       self?.handleToneSwitch(direction)
     }
-    hk.onEscapeKey = nil
+    hk.onEscapeKey = savedOnEscapeKey
   }
 
   func deactivate() {
@@ -90,7 +95,7 @@ final class TutorialHotkeyCoordinator {
 
     let hk = HotkeyManager.shared
 
-    // Restore saved callbacks
+    // Restore QDC's original callbacks — QDC stays running
     hk.onHotkeyEvent = savedOnHotkeyEvent
     hk.onModelSwitchKey = savedOnModelSwitchKey
     hk.onToneSwitchKey = savedOnToneSwitchKey
@@ -101,12 +106,6 @@ final class TutorialHotkeyCoordinator {
     savedOnToneSwitchKey = nil
     savedOnEscapeKey = nil
 
-    // Stop listening only if we started it
-    if didStartListening {
-      hk.stopListening()
-      didStartListening = false
-    }
-
     feedbackTimer?.invalidate()
   }
 
@@ -116,24 +115,24 @@ final class TutorialHotkeyCoordinator {
     switch event {
     case .keyDown:
       if currentItem == .pressHotkey {
-        completeCurrentItem(feedback: "Hotkey detected!")
+        completeCurrentItem(feedback: "Recording started — look at the notch!")
       }
     case .keyUp:
       if currentItem == .releaseHotkey {
-        completeCurrentItem(feedback: "Release detected!")
+        completeCurrentItem(feedback: "Transcription triggered!")
       }
     }
   }
 
   private func handleModelSwitch(_ direction: Int) {
     if currentItem == .modelSwitch {
-      completeCurrentItem(feedback: "Model switch detected!")
+      completeCurrentItem(feedback: "Model switch — see the notch selector!")
     }
   }
 
   private func handleToneSwitch(_ direction: Int) {
     if currentItem == .toneSwitch {
-      completeCurrentItem(feedback: "Tone switch detected!")
+      completeCurrentItem(feedback: "Tone switch — you've got it!")
     }
   }
 
@@ -160,7 +159,7 @@ final class TutorialHotkeyCoordinator {
   private func showFeedback(_ text: String) {
     feedbackText = text
     feedbackTimer?.invalidate()
-    feedbackTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { [weak self] _ in
+    feedbackTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
       DispatchQueue.main.async {
         self?.feedbackText = nil
       }

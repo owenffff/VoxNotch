@@ -363,7 +363,7 @@ struct OnboardingView: View {
         .font(.title)
         .fontWeight(.bold)
 
-      Text("Perform each action to continue.")
+      Text("Try each interaction — watch the notch respond.")
         .font(.body)
         .foregroundStyle(.secondary)
 
