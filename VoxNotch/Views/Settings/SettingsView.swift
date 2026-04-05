@@ -1382,11 +1382,12 @@ struct DictationAITab: View {
   @State private var llmModelManager = LLMModelManager.shared
   @State private var customOllamaTag: String = ""
   @State private var registry = ToneRegistry.shared
-  @State private var selectedToneID: String? = nil
-  @State private var showNewToneSheet = false
+  @State private var selectedCustomToneID: String? = nil
   @State private var promptText: String = ""
   @State private var nameText: String = ""
   @State private var showDeleteConfirm = false
+  @State private var showNewToneSheet = false
+  @State private var showAdvancedTones = false
 
   private var availableModels: [String] {
     switch settings.llmProvider {
@@ -1395,67 +1396,94 @@ struct DictationAITab: View {
     }
   }
 
-  private var selectedTone: ToneTemplate? {
-    guard let id = selectedToneID else { return nil }
+  private var builtInTones: [ToneTemplate] {
+    registry.tones.filter { $0.isBuiltIn }
+  }
+
+  private var customTones: [ToneTemplate] {
+    registry.tones.filter { !$0.isBuiltIn }
+  }
+
+  private var selectedCustomTone: ToneTemplate? {
+    guard let id = selectedCustomToneID else { return nil }
     return registry.tone(forID: id)
   }
 
   var body: some View {
     Form {
-      // MARK: Tone List
+      // MARK: — Tier 1: Preset Tones (simple cards, no prompt visible)
       Section {
-        ForEach(registry.tones) { tone in
-          ToneRowView(
-            tone: tone,
-            isActive: settings.activeToneID == tone.id,
-            isSelected: selectedToneID == tone.id,
-            onSelect: {
-              selectedToneID = tone.id
-              promptText = tone.prompt
-              nameText = tone.displayName
-            },
-            onActivate: { settings.activeToneID = tone.id },
-            onDelete: {
-              registry.remove(id: tone.id)
-              if settings.activeToneID == tone.id { settings.activeToneID = "none" }
-              settings.pinnedToneIDs.removeAll { $0 == tone.id }
-              if selectedToneID == tone.id { selectedToneID = nil }
-            }
-          )
+        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+          ForEach(builtInTones) { tone in
+            TonePresetCard(
+              tone: tone,
+              isActive: settings.activeToneID == tone.id,
+              onActivate: { settings.activeToneID = tone.id }
+            )
+          }
         }
       } header: {
-        HStack {
-          Text("Tones")
-          Spacer()
-          Button {
-            showNewToneSheet = true
-          } label: {
-            Label("New Tone", systemImage: "plus")
-              .font(.caption)
-          }
-          .buttonStyle(.borderless)
-        }
+        Text("Tones")
+      } footer: {
+        Text("Select a tone to apply AI processing to your transcriptions.")
+          .font(.caption)
       }
 
-      // MARK: Selected Tone Detail
-      if let tone = selectedTone, tone.id != "none" {
-        Section {
+      // MARK: — Tier 2: Custom Tones (power users)
+      DisclosureGroup(isExpanded: $showAdvancedTones) {
+        // Custom tone list
+        if customTones.isEmpty {
+          Text("No custom tones yet. Create one to write your own prompt.")
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .padding(.vertical, 4)
+        } else {
+          ForEach(customTones) { tone in
+            ToneRowView(
+              tone: tone,
+              isActive: settings.activeToneID == tone.id,
+              isSelected: selectedCustomToneID == tone.id,
+              onSelect: {
+                selectedCustomToneID = tone.id
+                promptText = tone.prompt
+                nameText = tone.displayName
+              },
+              onActivate: { settings.activeToneID = tone.id },
+              onDelete: {
+                registry.remove(id: tone.id)
+                if settings.activeToneID == tone.id { settings.activeToneID = "none" }
+                settings.pinnedToneIDs.removeAll { $0 == tone.id }
+                if selectedCustomToneID == tone.id { selectedCustomToneID = nil }
+              }
+            )
+          }
+        }
+
+        // New tone button
+        Button {
+          showNewToneSheet = true
+        } label: {
+          Label("Create Custom Tone", systemImage: "plus")
+            .font(.callout)
+        }
+        .buttonStyle(.borderless)
+        .padding(.top, 4)
+
+        // Selected custom tone editor
+        if let tone = selectedCustomTone {
           VStack(alignment: .leading, spacing: 10) {
+            Divider()
+
             // Name + action row
             HStack {
-              if tone.isBuiltIn {
-                Text(tone.displayName)
-                  .font(.headline)
-              } else {
-                TextField("Tone Name", text: $nameText)
-                  .textFieldStyle(.plain)
-                  .font(.headline)
-                  .onChange(of: nameText) { _, newVal in
-                    var updated = tone
-                    updated.displayName = newVal
-                    registry.update(updated)
-                  }
-              }
+              TextField("Tone Name", text: $nameText)
+                .textFieldStyle(.plain)
+                .font(.headline)
+                .onChange(of: nameText) { _, newVal in
+                  var updated = tone
+                  updated.displayName = newVal
+                  registry.update(updated)
+                }
 
               Spacer()
 
@@ -1479,8 +1507,8 @@ struct DictationAITab: View {
                 updated.prompt = newVal
                 registry.update(updated)
               }
-              .onChange(of: selectedToneID) { _, _ in
-                if let t = selectedTone {
+              .onChange(of: selectedCustomToneID) { _, _ in
+                if let t = selectedCustomTone {
                   promptText = t.prompt
                   nameText = t.displayName
                 }
@@ -1488,18 +1516,6 @@ struct DictationAITab: View {
 
             // Action buttons
             HStack(spacing: 12) {
-              // Revert (built-in only, when modified)
-              if tone.isBuiltIn, let original = tone.originalPrompt, tone.prompt != original {
-                Button {
-                  registry.revert(id: tone.id)
-                  promptText = original
-                } label: {
-                  Label("Revert to Default", systemImage: "arrow.counterclockwise")
-                    .font(.caption)
-                }
-                .buttonStyle(.borderless)
-              }
-
               // Duplicate
               Button {
                 let copy = ToneTemplate(
@@ -1510,48 +1526,50 @@ struct DictationAITab: View {
                   originalPrompt: nil
                 )
                 registry.add(copy)
-                selectedToneID = copy.id
+                selectedCustomToneID = copy.id
                 promptText = copy.prompt
                 nameText = copy.displayName
               } label: {
-                Label("Duplicate as Custom", systemImage: "doc.on.doc")
+                Label("Duplicate", systemImage: "doc.on.doc")
                   .font(.caption)
               }
               .buttonStyle(.borderless)
 
               Spacer()
 
-              // Delete (custom only)
-              if !tone.isBuiltIn {
-                Button(role: .destructive) {
-                  showDeleteConfirm = true
-                } label: {
-                  Label("Delete", systemImage: "trash")
-                    .font(.caption)
-                }
-                .buttonStyle(.borderless)
-                .confirmationDialog("Delete \"\(tone.displayName)\"?", isPresented: $showDeleteConfirm) {
-                  Button("Delete", role: .destructive) {
-                    let id = tone.id
-                    registry.remove(id: id)
-                    if settings.activeToneID == id { settings.activeToneID = "none" }
-                    settings.pinnedToneIDs.removeAll { $0 == id }
-                    selectedToneID = nil
-                  }
+              // Delete
+              Button(role: .destructive) {
+                showDeleteConfirm = true
+              } label: {
+                Label("Delete", systemImage: "trash")
+                  .font(.caption)
+              }
+              .buttonStyle(.borderless)
+              .confirmationDialog("Delete \"\(tone.displayName)\"?", isPresented: $showDeleteConfirm) {
+                Button("Delete", role: .destructive) {
+                  let id = tone.id
+                  registry.remove(id: id)
+                  if settings.activeToneID == id { settings.activeToneID = "none" }
+                  settings.pinnedToneIDs.removeAll { $0 == id }
+                  selectedCustomToneID = nil
                 }
               }
             }
           }
-        } header: {
-          Text("Prompt — \(tone.displayName)")
         }
-      } else if selectedToneID == "none" {
-        Section {
-          Label("No AI processing. Transcribed text is used as-is.", systemImage: "text.quote")
-            .foregroundStyle(.secondary)
-            .font(.callout)
-        } header: {
-          Text("Original")
+      } label: {
+        HStack {
+          Label("Custom Tones", systemImage: "slider.horizontal.3")
+            .font(.body)
+          if !customTones.isEmpty {
+            Text("\(customTones.count)")
+              .font(.caption2)
+              .foregroundStyle(.secondary)
+              .padding(.horizontal, 6)
+              .padding(.vertical, 2)
+              .background(Color.secondary.opacity(0.1))
+              .clipShape(Capsule())
+          }
         }
       }
 
@@ -1688,10 +1706,7 @@ struct DictationAITab: View {
                 .textFieldStyle(.roundedBorder)
 
               Button("Pull") {
-                guard !customOllamaTag.isEmpty else {
-                  return
-                }
-
+                guard !customOllamaTag.isEmpty else { return }
                 let tag = customOllamaTag
                 Task { await llmModelManager.pullCustomModel(tag: tag) }
               }
@@ -1740,7 +1755,7 @@ struct DictationAITab: View {
           originalPrompt: nil
         )
         registry.add(tone)
-        selectedToneID = tone.id
+        selectedCustomToneID = tone.id
         promptText = tone.prompt
         nameText = tone.displayName
       }
@@ -1781,6 +1796,52 @@ struct DictationAITab: View {
         }
       }
     }
+  }
+}
+
+// MARK: - Tone Preset Card
+
+private struct TonePresetCard: View {
+
+  let tone: ToneTemplate
+  let isActive: Bool
+  let onActivate: () -> Void
+
+  var body: some View {
+    Button(action: onActivate) {
+      VStack(alignment: .leading, spacing: 6) {
+        HStack {
+          Text(tone.displayName)
+            .font(.headline)
+            .foregroundStyle(isActive ? .white : .primary)
+
+          Spacer()
+
+          if isActive {
+            Image(systemName: "checkmark.circle.fill")
+              .foregroundStyle(.white)
+          }
+        }
+
+        if !tone.description.isEmpty {
+          Text(tone.description)
+            .font(.caption)
+            .foregroundStyle(isActive ? .white.opacity(0.85) : .secondary)
+            .lineLimit(2)
+        }
+      }
+      .padding(12)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(
+        RoundedRectangle(cornerRadius: 10)
+          .fill(isActive ? Color.accentColor : Color.secondary.opacity(0.08))
+      )
+      .overlay(
+        RoundedRectangle(cornerRadius: 10)
+          .stroke(isActive ? Color.clear : Color.secondary.opacity(0.15), lineWidth: 1)
+      )
+    }
+    .buttonStyle(.plain)
   }
 }
 
