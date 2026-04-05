@@ -1,36 +1,8 @@
 {
   "images" : [
     {
-      "filename" : "menubar-icon.png",
-      "idiom" : "universal",
-      "scale" : "1x"
-    },
-    {
-      "appearances" : [
-        {
-          "appearance" : "luminosity",
-          "value" : "dark"
-        }
-      ],
-      "filename" : "menubar-icon-dark.png",
-      "idiom" : "universal",
-      "scale" : "1x"
-    },
-    {
-      "filename" : "menubar-icon@2x.png",
-      "idiom" : "universal",
-      "scale" : "2x"
-    },
-    {
-      "appearances" : [
-        {
-          "appearance" : "luminosity",
-          "value" : "dark"
-        }
-      ],
-      "filename" : "menubar-icon-dark@2x.png",
-      "idiom" : "universal",
-      "scale" : "2x"
+      "filename" : "menubar-icon.svg",
+      "idiom" : "universal"
     }
   ],
   "info" : {
@@ -38,6 +10,7 @@
     "version" : 1
   },
   "properties" : {
+    "preserves-vector-representation" : true,
     "template-rendering-intent" : "template"
   }
 }

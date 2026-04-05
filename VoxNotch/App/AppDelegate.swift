@@ -56,7 +56,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         if let button = statusItem?.button {
-            button.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "VoxNotch")
+            button.image = NSImage(named: "MenuBarIcon")
+            button.image?.isTemplate = true
             button.action = #selector(statusBarButtonClicked)
             button.target = self
         }
@@ -214,24 +215,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func updateStatusIcon() {
         guard let button = statusItem?.button else { return }
-
-        let appState = AppState.shared
-        let symbolName: String
-
-        switch appState.status {
-        case .recording:
-            symbolName = "waveform.circle.fill"
-        case .warmingUp, .transcribing, .processing, .downloading:
-            symbolName = "waveform.badge.ellipsis"
-        case .error:
-            symbolName = "waveform.badge.exclamationmark"
-        case .modelsNeeded:
-            symbolName = "arrow.down.circle"
-        case .ready:
-            symbolName = "waveform"
-        }
-
-        button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "VoxNotch - \(appState.status.rawValue)")
+        button.image = NSImage(named: "MenuBarIcon")
+        button.image?.isTemplate = true
     }
 
     func updateMenuStatus() {
