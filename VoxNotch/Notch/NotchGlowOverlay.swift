@@ -32,6 +32,11 @@ struct NotchGlowOverlay: View {
 
   @State private var breathing = false
 
+  private var glowOpacity: CGFloat {
+    guard isActive else { return 0 }
+    return breathing ? breatheMax : breatheMin
+  }
+
   // MARK: - Body
 
   var body: some View {
@@ -41,19 +46,24 @@ struct NotchGlowOverlay: View {
     )
     .stroke(Self.glowColor, lineWidth: strokeWidth)
     .blur(radius: blurRadius)
-    .opacity(isActive ? (breathing ? breatheMax : breatheMin) : 0)
+    .opacity(glowOpacity)
     .animation(
-      isActive
+      breathing
         ? .easeInOut(duration: breathePeriod / 2).repeatForever(autoreverses: true)
-        : .easeOut(duration: 0.5),
+        : .default,
       value: breathing
     )
-    .animation(.easeOut(duration: isActive ? 0.4 : 0.5), value: isActive)
     .onAppear {
-      if isActive { breathing = true }
+      if isActive {
+        withAnimation(.easeIn(duration: 0.4)) { breathing = true }
+      }
     }
     .onChange(of: isActive) { _, active in
-      breathing = active
+      if active {
+        withAnimation(.easeIn(duration: 0.4)) { breathing = true }
+      } else {
+        withAnimation(.easeOut(duration: 0.5)) { breathing = false }
+      }
     }
     .allowsHitTesting(false)
   }
