@@ -91,6 +91,29 @@ struct NotchContentView: View {
     }
     .frame(width: currentWidth, height: currentHeight)
     .background(.black)
+    .overlay {
+      if notchManager.notchState == .expanded {
+        Rectangle()
+          .fill(.ultraThinMaterial)
+          .mask {
+            VStack(spacing: 0) {
+              // Physical notch area: no frosted effect.
+              Color.clear
+                .frame(height: notchManager.physicalNotchSize.height)
+              // Expanded content area: soft-edged ring.
+              ZStack {
+                Color.white
+                Color.white
+                  .padding(8)
+                  .blur(radius: 6)
+                  .blendMode(.destinationOut)
+              }
+              .compositingGroup()
+            }
+          }
+          .transition(.opacity)
+      }
+    }
     .clipShape(
       NotchShape(
         topCornerRadius: topCornerRadius,
