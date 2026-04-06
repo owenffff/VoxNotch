@@ -26,6 +26,19 @@ struct GeneralTab: View {
 
   var body: some View {
     Form {
+      // MARK: Setup
+      Section {
+        Button("Run Setup Wizard Again\u{2026}") {
+          let wizard = OnboardingWindowController.shared
+          wizard.onComplete = nil
+          wizard.show()
+        }
+      } header: {
+        Text("Setup")
+      } footer: {
+        Text("Re-run the first-time setup to configure permissions, download models, and review the tutorial.")
+      }
+
       // MARK: Startup
       Section {
         Toggle(isOn: Binding(
