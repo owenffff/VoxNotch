@@ -1,0 +1,47 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer
+
+      - name: Build Release archive
+        run: |
+          xcodebuild archive \
+            -scheme VoxNotch \
+            -configuration Release \
+            -archivePath $RUNNER_TEMP/VoxNotch.xcarchive \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Export .app from archive
+        run: |
+          mkdir -p $RUNNER_TEMP/export
+          cp -R $RUNNER_TEMP/VoxNotch.xcarchive/Products/Applications/VoxNotch.app $RUNNER_TEMP/export/
+
+      - name: Create DMG
+        run: |
+          brew install create-dmg
+          create-dmg \
+            --volname "VoxNotch" \
+            --window-size 600 400 \
+            --icon "VoxNotch.app" 150 200 \
+            --app-drop-link 450 200 \
+            $RUNNER_TEMP/VoxNotch.dmg \
+            $RUNNER_TEMP/export/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ runner.temp }}/VoxNotch.dmg
+          generate_release_notes: true

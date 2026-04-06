@@ -1,0 +1,122 @@
+//
+//  NotchContentView.swift
+//  VoxNotch
+//
+//  Root SwiftUI view hosted inside the persistent NotchPanel.
+//  Integrates with the physical MacBook notch: the hidden state
+//  matches the physical notch dimensions (black on black = invisible),
+//  and the expanded state grows downward from the physical notch.
+//
+
+import SwiftUI
+
+struct NotchContentView: View {
+
+  @Environment(NotchManager.self) private var notchManager
+
+  // MARK: - Expanded Size
+
+  /// Width of the expanded notch panel.
+  private let expandedWidth: CGFloat = 320
+
+  /// Height of the visible content area below the physical notch.
+  private let expandedContentHeight: CGFloat = 34
+
+  // MARK: - Derived Sizing
+
+  /// Current width of the notch shape.
+  private var currentWidth: CGFloat {
+    if notchManager.notchState == .expanded { return expandedWidth }
+    return notchManager.hasPhysicalNotch
+      ? notchManager.physicalNotchSize.width
+      : 40
+  }
+
+  /// Current total height including the physical notch region at top.
+  /// Hidden: just the physical notch height (invisible black region).
+  /// Expanded: physical notch height + content below it.
+  private var currentHeight: CGFloat {
+    if notchManager.notchState == .expanded {
+      return notchManager.physicalNotchSize.height + expandedContentHeight
+    }
+    return notchManager.hasPhysicalNotch
+      ? notchManager.physicalNotchSize.height
+      : 4
+  }
+
+  /// On external monitors the hidden state fades to transparent so the
+  /// shrinking shape dissolves instead of lingering as a visible black pill.
+  private var currentOpacity: CGFloat {
+    if notchManager.hasPhysicalNotch { return 1 }
+    return notchManager.notchState == .expanded ? 1 : 0
+  }
+
+  // MARK: - Corner Radii
+
+  private var topCornerRadius: CGFloat {
+    notchManager.notchState == .expanded ? 12 : 6
+  }
+
+  private var bottomCornerRadius: CGFloat {
+    notchManager.notchState == .expanded ? 16 : 14
+  }
+
+  // MARK: - Animation
+
+  private var animation: Animation {
+    .spring(response: 0.42, dampingFraction: 0.8, blendDuration: 0)
+  }
+
+  // MARK: - Body
+
+  var body: some View {
+    VStack(spacing: 0) {
+      // Top region: occupies the physical notch height (black, invisible).
+      Color.clear
+        .frame(height: notchManager.physicalNotchSize.height)
+
+      // Content region: only visible when expanded.
+      if notchManager.notchState == .expanded {
+        NotchExpandedFallbackView()
+          .frame(height: expandedContentHeight)
+          .transition(
+            .opacity.combined(with: .scale(scale: 0.8, anchor: .top))
+          )
+      }
+    }
+    .frame(width: currentWidth, height: currentHeight)
+    .background(.black)
+    .clipShape(
+      NotchShape(
+        topCornerRadius: topCornerRadius,
+        bottomCornerRadius: bottomCornerRadius
+      )
+    )
+    .shadow(
+      color: notchManager.notchState == .expanded
+        ? .black.opacity(0.5) : .clear,
+      radius: 6
+    )
+    .compositingGroup()
+    .opacity(currentOpacity * notchManager.panelOpacity)
+    .allowsHitTesting(notchManager.notchState == .expanded)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    .animation(animation, value: notchManager.notchState)
+  }
+}
+
+// MARK: - Notch Color Palette
+
+extension Color {
+  /// Soft coral — clear error signal without being jarring.
+  static let notchRed = Color(red: 0.98, green: 0.40, blue: 0.40)
+
+  /// Mint green — fresh, natural success.
+  static let notchGreen = Color(red: 0.30, green: 0.84, blue: 0.56)
+
+  /// Warm amber — golden caution, not neon yellow.
+  static let notchAmber = Color(red: 1.00, green: 0.78, blue: 0.30)
+
+  /// Sky blue — informational, used for clipboard actions.
+  static let notchBlue = Color(red: 0.40, green: 0.72, blue: 1.00)
+}
