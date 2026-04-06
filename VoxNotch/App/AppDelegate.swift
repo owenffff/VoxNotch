@@ -239,7 +239,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Quick Dictation
 
     private func setupQuickDictation() {
-        let controller = QuickDictationController.shared
+        let controller = container.dictationController
 
         // Listen for state changes to update UI
         controller.onStateChange = { [weak self] state in
@@ -315,8 +315,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            _ = self // prevent unused warning
-            QuickDictationController.shared.stop()
+            self?.container.dictationController.stop()
             ModelMemoryManager.shared.stopIdleTimer()
         }
 
@@ -325,15 +324,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            _ = self
-            QuickDictationController.shared.start()
+            self?.container.dictationController.start()
         }
     }
 
     // MARK: - Cleanup
 
     private func cleanup() {
-        QuickDictationController.shared.stop()
+        container.dictationController.stop()
 
         // Clean up device monitoring
         AudioCaptureManager.shared.stopDeviceChangeListener()

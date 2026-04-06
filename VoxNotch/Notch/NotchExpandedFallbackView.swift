@@ -9,38 +9,8 @@ import SwiftUI
 
 struct NotchExpandedFallbackView: View {
 
-  @Environment(AppState.self) private var appState
-  @Environment(NotchManager.self) private var notchManager
-  @Environment(AudioVisualizationState.self) private var audioViz
+  @Environment(NotchViewModel.self) private var vm
   @State private var dotBreathing = false
-
-  /// Single value that captures which phase the UI is in, used as the
-  /// sole animation driver so that simultaneous property changes don't
-  /// produce competing animations.
-  private var displayPhase: DisplayPhase {
-    switch appState.dictationPhase {
-    case .modelSelecting: return .modelSelecting
-    case .toneSelecting:  return .toneSelecting
-    case .recording:      return .recording
-    case .warmingUp:      return .warmingUp
-    case .transcribing:   return .transcribing
-    case .processingLLM:  return .processingLLM
-    case .outputting, .error, .idle:
-      break
-    }
-    if appState.modelDownload.isDownloadingModel { return .downloading }
-    if appState.modelDownload.modelsNeeded      { return .modelsNeeded }
-    if appState.error.lastError != nil          { return .error }
-    if let output = notchManager.outputNotification {
-      switch output {
-      case .inserted:        return .success
-      case .clipboard:       return .clipboard
-      case .clipboardAborted: return .clipboardAborted
-      }
-    }
-    if notchManager.isShowingConfirmation { return .confirmation }
-    return .idle
-  }
 
   var body: some View {
     content
@@ -49,66 +19,48 @@ struct NotchExpandedFallbackView: View {
       .padding(.vertical, 2)
       .frame(width: 280)
       .clipped()
-      .animation(.smooth(duration: 0.4), value: displayPhase)
+      .animation(.smooth(duration: 0.4), value: vm.displayPhase)
   }
 
   @ViewBuilder
   private var content: some View {
-    if case .modelSelecting = appState.dictationPhase {
+    switch vm.displayPhase {
+    case .modelSelecting:
       modelSelectionView
-    } else if case .toneSelecting = appState.dictationPhase {
+    case .toneSelecting:
       toneSelectionView
-    } else if case .recording = appState.dictationPhase {
+    case .recording:
       recordingView
-    } else if case .warmingUp = appState.dictationPhase {
+    case .warmingUp:
       spinnerRow(title: "Warming up…")
-    } else if case .transcribing = appState.dictationPhase {
+    case .transcribing:
       spinnerRow(title: "Transcribing…")
-    } else if case .processingLLM = appState.dictationPhase {
+    case .processingLLM:
       spinnerRow(title: "Processing…")
-    } else if appState.modelDownload.isDownloadingModel {
+    case .downloading:
       downloadRow
-    } else if appState.modelDownload.modelsNeeded {
+    case .modelsNeeded:
       transientRow(
         icon: "exclamationmark.triangle.fill",
         color: .notchAmber,
-        title: appState.modelDownload.modelsNeededMessage
+        title: vm.modelsNeededMessage
       )
-    } else if let error = appState.error.lastError {
+    case .error:
       transientRow(
         icon: "xmark.circle.fill",
         color: .notchRed,
-        title: shortenError(error),
-        subtitle: appState.error.canRetryTranscription ? "Press hotkey to retry" : appState.error.lastErrorRecovery
+        title: shortenError(vm.errorMessage ?? "Error"),
+        subtitle: vm.canRetry ? "Press hotkey to retry" : vm.errorRecovery
       )
-    } else if let result = notchManager.outputNotification {
-      switch result {
-      case .inserted:
-        transientRow(
-          icon: "checkmark.circle.fill",
-          color: .notchGreen,
-          title: "Text inserted"
-        )
-      case .clipboard:
-        transientRow(
-          icon: "doc.on.clipboard.fill",
-          color: .notchBlue,
-          title: "Copied — ⌘V to paste"
-        )
-      case .clipboardAborted:
-        transientRow(
-          icon: "arrow.uturn.left.circle.fill",
-          color: .notchAmber,
-          title: "App switched — ⌘V to paste"
-        )
-      }
-    } else if notchManager.isShowingConfirmation {
-      transientRow(
-        icon: "checkmark.circle.fill",
-        color: .notchGreen,
-        title: notchManager.confirmationMessage
-      )
-    } else {
+    case .outputInserted:
+      transientRow(icon: "checkmark.circle.fill", color: .notchGreen, title: "Text inserted")
+    case .outputClipboard:
+      transientRow(icon: "doc.on.clipboard.fill", color: .notchBlue, title: "Copied — ⌘V to paste")
+    case .outputClipboardAborted:
+      transientRow(icon: "arrow.uturn.left.circle.fill", color: .notchAmber, title: "App switched — ⌘V to paste")
+    case .confirmation:
+      transientRow(icon: "checkmark.circle.fill", color: .notchGreen, title: vm.confirmationMessage)
+    case .idle:
       EmptyView()
     }
   }
@@ -128,11 +80,11 @@ struct NotchExpandedFallbackView: View {
           value: dotBreathing
         )
 
-      ScrollingWaveformView(level: audioViz.audioLevel)
+      ScrollingWaveformView(level: vm.audioLevel)
         .frame(maxWidth: .infinity)
         .frame(height: 14)
 
-      Text(formatDuration(appState.recordingDuration))
+      Text(vm.statusText)
         .font(.system(size: 13, design: .monospaced))
         .foregroundStyle(.secondary)
         .contentTransition(.numericText())
@@ -156,10 +108,10 @@ struct NotchExpandedFallbackView: View {
 
   private var downloadRow: some View {
     HStack(spacing: 10) {
-      ProgressView(value: appState.modelDownload.modelDownloadProgress)
+      ProgressView(value: vm.downloadProgress)
         .frame(maxWidth: .infinity)
 
-      Text("\(Int(appState.modelDownload.modelDownloadProgress * 100))%")
+      Text("\(Int(vm.downloadProgress * 100))%")
         .font(.system(size: 12, design: .monospaced))
         .foregroundStyle(.secondary)
         .contentTransition(.numericText())
@@ -186,19 +138,16 @@ struct NotchExpandedFallbackView: View {
         .font(.system(size: 11))
         .foregroundStyle(.tertiary)
     }
-    .animation(.smooth(duration: 0.2), value: appState.modelSelection.index)
+    .animation(.smooth(duration: 0.2), value: vm.modelSelectionIndex)
   }
 
   private var modelNameLabel: some View {
     Group {
-      let candidates = appState.modelSelection.candidates
-      let index = appState.modelSelection.index
-
-      if index < candidates.count {
-        Text(candidates[index].displayName)
+      if let name = vm.modelSelectionName {
+        Text(name)
           .font(.system(size: 13, weight: .semibold))
           .foregroundStyle(.primary)
-          .id("model-\(index)")
+          .id("model-\(vm.modelSelectionIndex)")
           .transition(.opacity)
       } else {
         Text("More Models…")
@@ -230,19 +179,16 @@ struct NotchExpandedFallbackView: View {
         .font(.system(size: 11))
         .foregroundStyle(.tertiary)
     }
-    .animation(.smooth(duration: 0.2), value: appState.toneSelection.index)
+    .animation(.smooth(duration: 0.2), value: vm.toneSelectionIndex)
   }
 
   private var toneNameLabel: some View {
     Group {
-      let candidates = appState.toneSelection.candidates
-      let index = appState.toneSelection.index
-
-      if index < candidates.count {
-        Text(candidates[index].displayName)
+      if let name = vm.toneSelectionName {
+        Text(name)
           .font(.system(size: 13, weight: .semibold))
           .foregroundStyle(.primary)
-          .id("tone-\(index)")
+          .id("tone-\(vm.toneSelectionIndex)")
           .transition(.opacity)
       } else {
         Text("More Tones…")
@@ -256,15 +202,15 @@ struct NotchExpandedFallbackView: View {
 
   // MARK: - Transient Row
 
-  private func transientRow(icon: String, color: Color, title: String, subtitle: String? = nil, compact: Bool = false) -> some View {
+  private func transientRow(icon: String, color: Color, title: String, subtitle: String? = nil) -> some View {
     HStack(spacing: 8) {
       Image(systemName: icon)
-        .font(.system(size: compact ? 10 : 12))
+        .font(.system(size: 12))
         .foregroundStyle(color)
 
       VStack(alignment: .leading, spacing: 1) {
         Text(title)
-          .font(.system(size: compact ? 10 : 12, weight: .medium))
+          .font(.system(size: 12, weight: .medium))
           .foregroundStyle(.primary)
           .lineLimit(1)
           .truncationMode(.tail)
@@ -284,39 +230,12 @@ struct NotchExpandedFallbackView: View {
 
   private func shortenError(_ message: String) -> String {
     var msg = message
-    // Strip common localizedDescription boilerplate
     for prefix in ["The operation couldn't be completed. ", "The operation could not be completed. "] {
       if msg.hasPrefix(prefix) { msg = String(msg.dropFirst(prefix.count)) }
     }
-    // Remove redundant parenthesised error domain/code suffixes
     if let range = msg.range(of: #"\s*\([^)]*error\s+\d+[^)]*\)\.?$"#, options: [.regularExpression, .caseInsensitive]) {
       msg = String(msg[msg.startIndex..<range.lowerBound])
     }
     return msg
   }
-
-  private func formatDuration(_ seconds: TimeInterval) -> String {
-    let mins = Int(seconds) / 60
-    let secs = Int(seconds) % 60
-    return String(format: "%d:%02d", mins, secs)
-  }
-}
-
-// MARK: - Display Phase
-
-private enum DisplayPhase: Equatable {
-  case idle
-  case recording
-  case warmingUp
-  case transcribing
-  case processingLLM
-  case downloading
-  case modelsNeeded
-  case error
-  case success
-  case clipboard
-  case clipboardAborted
-  case confirmation
-  case modelSelecting
-  case toneSelecting
 }

@@ -75,11 +75,13 @@ final class NotchManager {
       defer: false
     )
 
+    let viewModel = NotchViewModel(appState: AppState.shared, notchManager: self, audioViz: AudioVisualizationState.shared)
     let hostingView = NSHostingView(
       rootView: NotchContentView()
         .environment(AppState.shared)
         .environment(self)
         .environment(AudioVisualizationState.shared)
+        .environment(viewModel)
     )
     hostingView.frame = NSRect(origin: .zero, size: Self.panelSize)
     panel.contentView = hostingView

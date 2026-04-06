@@ -23,6 +23,10 @@ struct ServiceContainer {
 
     let appState: AppState
 
+    // MARK: - Controllers
+
+    let dictationController: QuickDictationController
+
     // MARK: - Managers
 
     let settings: SettingsManager
@@ -48,6 +52,7 @@ struct ServiceContainer {
         llmProcessor: LLMProcessing = LLMService.shared,
         textOutputting: TextOutputting = TextOutputManager.shared,
         appState: AppState = .shared,
+        dictationController: QuickDictationController = .shared,
         settings: SettingsManager = .shared,
         notchPresenter: NotchPresenting = NotchManager.shared,
         soundManager: SoundManager = .shared,
@@ -61,6 +66,7 @@ struct ServiceContainer {
         self.llmProcessor = llmProcessor
         self.textOutputting = textOutputting
         self.appState = appState
+        self.dictationController = dictationController
         self.settings = settings
         self.notchPresenter = notchPresenter
         self.soundManager = soundManager
