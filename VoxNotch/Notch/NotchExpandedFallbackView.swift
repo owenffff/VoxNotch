@@ -10,6 +10,7 @@ import SwiftUI
 struct NotchExpandedFallbackView: View {
 
   private let appState = AppState.shared
+  @State private var dotBreathing = false
 
   /// Single value that captures which phase the UI is in, used as the
   /// sole animation driver so that simultaneous property changes don't
@@ -68,13 +69,13 @@ struct NotchExpandedFallbackView: View {
     } else if appState.modelsNeeded {
       transientRow(
         icon: "exclamationmark.triangle.fill",
-        color: .yellow,
+        color: .notchAmber,
         title: appState.modelsNeededMessage
       )
     } else if let error = appState.lastError {
       transientRow(
         icon: "xmark.circle.fill",
-        color: .red,
+        color: .notchRed,
         title: shortenError(error),
         subtitle: appState.canRetryTranscription ? "Press hotkey to retry" : appState.lastErrorRecovery
       )
@@ -83,26 +84,26 @@ struct NotchExpandedFallbackView: View {
       case .inserted:
         transientRow(
           icon: "checkmark.circle.fill",
-          color: .green,
+          color: .notchGreen,
           title: "Text inserted"
         )
       case .clipboard:
         transientRow(
           icon: "doc.on.clipboard.fill",
-          color: .green,
+          color: .notchBlue,
           title: "Copied — ⌘V to paste"
         )
       case .clipboardAborted:
         transientRow(
           icon: "arrow.uturn.left.circle.fill",
-          color: .yellow,
+          color: .notchAmber,
           title: "App switched — ⌘V to paste"
         )
       }
     } else if appState.isShowingConfirmation {
       transientRow(
         icon: "checkmark.circle.fill",
-        color: .green,
+        color: .notchGreen,
         title: appState.confirmationMessage
       )
     } else {
@@ -115,8 +116,15 @@ struct NotchExpandedFallbackView: View {
   private var recordingView: some View {
     HStack(spacing: 10) {
       Circle()
-        .fill(.red)
+        .fill(Color.notchRed)
         .frame(width: 6, height: 6)
+        .opacity(dotBreathing ? 0.3 : 1.0)
+        .onAppear { dotBreathing = true }
+        .onDisappear { dotBreathing = false }
+        .animation(
+          .easeInOut(duration: 1.0).repeatForever(autoreverses: true),
+          value: dotBreathing
+        )
 
       ScrollingWaveformView(level: AudioVisualizationState.shared.audioLevel)
         .frame(maxWidth: .infinity)

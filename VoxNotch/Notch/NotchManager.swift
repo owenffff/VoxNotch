@@ -105,13 +105,13 @@ final class NotchManager {
       appState.isShowingConfirmation = false
     }
     showExpanded()
-    scheduleAutoHide(after: 1.5)
+    scheduleAutoHide(after: 1.25)
   }
 
   func showError(_ message: String) {
     cancelAutoHide()
     showExpanded()
-    scheduleAutoHide(after: 1.5)
+    scheduleAutoHide(after: 1.25)
   }
 
   func showModelSelector() {
@@ -127,7 +127,7 @@ final class NotchManager {
   func showModelsNeeded(_ message: String) {
     cancelAutoHide()
     showExpanded()
-    scheduleAutoHide(after: 1.5)
+    scheduleAutoHide(after: 1.25)
   }
 
   func showConfirmation(_ message: String) {
@@ -138,7 +138,7 @@ final class NotchManager {
       appState.outputNotification = nil
     }
     showExpanded()
-    scheduleAutoHide(after: 1.5)
+    scheduleAutoHide(after: 1.25)
   }
 
   func hide() {
@@ -147,7 +147,7 @@ final class NotchManager {
       appState.outputNotification = nil
       appState.isShowingConfirmation = false
     }
-    withAnimation(.spring(response: 0.45, dampingFraction: 1.0)) {
+    withAnimation(.spring(response: 0.42, dampingFraction: 0.8)) {
       notchState = .hidden
     }
     scheduleFadeAndOrderOut()
@@ -217,7 +217,7 @@ final class NotchManager {
     cancelFadeOut()
     fadeOutTask = Task { [weak self] in
       // Wait for the spring collapse to mostly settle.
-      try? await Task.sleep(for: .seconds(0.35))
+      try? await Task.sleep(for: .seconds(0.50))
       guard let self, !Task.isCancelled else { return }
 
       withAnimation(.easeOut(duration: 0.2)) {
@@ -248,7 +248,7 @@ final class NotchManager {
         self.appState.lastError = nil
         self.appState.lastErrorRecovery = nil
       }
-      withAnimation(.spring(response: 0.45, dampingFraction: 1.0)) {
+      withAnimation(.spring(response: 0.42, dampingFraction: 0.8)) {
         self.notchState = .hidden
       }
       self.scheduleFadeAndOrderOut()

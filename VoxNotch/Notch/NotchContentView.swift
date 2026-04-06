@@ -64,12 +64,7 @@ struct NotchContentView: View {
   // MARK: - Animation
 
   private var animation: Animation {
-    switch notchManager.notchState {
-    case .expanded:
-      .spring(response: 0.42, dampingFraction: 0.8, blendDuration: 0)
-    case .hidden:
-      .spring(response: 0.45, dampingFraction: 1.0, blendDuration: 0)
-    }
+    .spring(response: 0.42, dampingFraction: 0.8, blendDuration: 0)
   }
 
   // MARK: - Body
@@ -108,4 +103,20 @@ struct NotchContentView: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     .animation(animation, value: notchManager.notchState)
   }
+}
+
+// MARK: - Notch Color Palette
+
+extension Color {
+  /// Soft coral — clear error signal without being jarring.
+  static let notchRed = Color(red: 0.98, green: 0.40, blue: 0.40)
+
+  /// Mint green — fresh, natural success.
+  static let notchGreen = Color(red: 0.30, green: 0.84, blue: 0.56)
+
+  /// Warm amber — golden caution, not neon yellow.
+  static let notchAmber = Color(red: 1.00, green: 0.78, blue: 0.30)
+
+  /// Sky blue — informational, used for clipboard actions.
+  static let notchBlue = Color(red: 0.40, green: 0.72, blue: 1.00)
 }

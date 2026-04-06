@@ -10,6 +10,7 @@ import SwiftUI
 struct CompactLeadingView: View {
 
   private let appState = AppState.shared
+  @State private var dotBreathing = false
 
   /// Single animation driver derived from AppState, avoiding
   /// competing `.animation()` modifiers.
@@ -59,17 +60,17 @@ struct CompactLeadingView: View {
     } else if appState.isDownloadingModel {
       progressBar
     } else if appState.modelsNeeded {
-      statusIcon("exclamationmark.triangle", color: .yellow)
+      statusIcon("exclamationmark.triangle.fill", color: .notchAmber)
     } else if appState.lastError != nil {
-      statusIcon("xmark.circle.fill", color: .red)
+      statusIcon("xmark.circle.fill", color: .notchRed)
     } else if let result = appState.outputNotification {
       switch result {
       case .inserted:
-        statusIcon("checkmark.circle.fill", color: .green)
+        statusIcon("checkmark.circle.fill", color: .notchGreen)
       case .clipboard:
-        statusIcon("doc.on.clipboard", color: .green)
+        statusIcon("doc.on.clipboard.fill", color: .notchBlue)
       case .clipboardAborted:
-        statusIcon("arrow.uturn.left.circle", color: .yellow)
+        statusIcon("arrow.uturn.left.circle.fill", color: .notchAmber)
       }
     } else {
       statusIcon("waveform", color: .secondary)
@@ -81,8 +82,15 @@ struct CompactLeadingView: View {
   private var recordingLeading: some View {
     HStack(spacing: 6) {
       Circle()
-        .fill(.red)
+        .fill(Color.notchRed)
         .frame(width: 8, height: 8)
+        .opacity(dotBreathing ? 0.3 : 1.0)
+        .onAppear { dotBreathing = true }
+        .onDisappear { dotBreathing = false }
+        .animation(
+          .easeInOut(duration: 1.0).repeatForever(autoreverses: true),
+          value: dotBreathing
+        )
 
       ScrollingWaveformView(level: AudioVisualizationState.shared.audioLevel)
         .frame(maxWidth: .infinity)
