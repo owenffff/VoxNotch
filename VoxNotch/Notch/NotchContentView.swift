@@ -103,7 +103,7 @@ struct NotchContentView: View {
       radius: 6
     )
     .compositingGroup()
-    .opacity(currentOpacity)
+    .opacity(currentOpacity * notchManager.panelOpacity)
     .allowsHitTesting(notchManager.notchState == .expanded)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     .animation(animation, value: notchManager.notchState)
