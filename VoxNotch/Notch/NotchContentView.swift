@@ -99,15 +99,38 @@ struct NotchContentView: View {
     )
     .mask {
       ZStack {
-        // Edges: slightly transparent when expanded, fully opaque when hidden.
+        // Edges: translucent when expanded, fully opaque when hidden.
         Color.white
-          .opacity(notchManager.notchState == .expanded ? 0.85 : 1.0)
+          .opacity(notchManager.notchState == .expanded ? 0.75 : 1.0)
         // Center: boost to full opacity with soft gradient edge.
         if notchManager.notchState == .expanded {
           Color.white
-            .padding(6)
-            .blur(radius: 8)
+            .padding(8)
+            .blur(radius: 10)
         }
+      }
+    }
+    .overlay {
+      // Glassmorphism border: light-catching glow along the notch edge.
+      if notchManager.notchState == .expanded {
+        NotchShape(
+          topCornerRadius: topCornerRadius,
+          bottomCornerRadius: bottomCornerRadius
+        )
+        .stroke(
+          LinearGradient(
+            stops: [
+              .init(color: .white.opacity(0.3), location: 0.0),
+              .init(color: .white.opacity(0.12), location: 0.4),
+              .init(color: .white.opacity(0.05), location: 1.0),
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+          ),
+          lineWidth: 1.5
+        )
+        .blur(radius: 1)
+        .transition(.opacity)
       }
     }
     .shadow(
