@@ -28,16 +28,16 @@ final class QuickDictationControllerTests: XCTestCase {
         mockLLM = MockLLMProcessing()
         mockTextOutput = MockTextOutputting()
         mockNotch = MockNotchPresenter()
-        appState = AppState.shared
-
-        appState.reset()
+        appState = AppState(forTesting: ())
 
         controller = QuickDictationController(
             audioManager: mockAudio,
             textOutputManager: mockTextOutput,
             transcriptionEngine: mockTranscription,
             llmProcessor: mockLLM,
-            notchPresenter: mockNotch
+            appState: appState,
+            notchPresenter: mockNotch,
+            errorRouter: ErrorRouter(errorState: appState.error)
         )
     }
 

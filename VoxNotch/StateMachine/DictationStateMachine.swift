@@ -70,6 +70,7 @@ final class DictationStateMachine {
     private let textOutputManager: TextOutputting
     private let settings: SettingsManager
     private let databaseManager: DatabaseManager
+    private let toneRegistry: ToneRegistry
     private let clock: AppClock
 
     // MARK: - Timers
@@ -106,6 +107,7 @@ final class DictationStateMachine {
         textOutputManager: TextOutputting = TextOutputManager.shared,
         settings: SettingsManager = .shared,
         databaseManager: DatabaseManager = .shared,
+        toneRegistry: ToneRegistry = .shared,
         clock: AppClock? = nil
     ) {
         self.audioManager = audioManager
@@ -114,6 +116,7 @@ final class DictationStateMachine {
         self.textOutputManager = textOutputManager
         self.settings = settings
         self.databaseManager = databaseManager
+        self.toneRegistry = toneRegistry
         self.clock = clock ?? SystemClock()
     }
 
@@ -460,7 +463,7 @@ final class DictationStateMachine {
         }
 
         let toneID = settings.activeToneID
-        let toneName = ToneRegistry.shared.tone(forID: toneID)?.displayName ?? toneID
+        let toneName = toneRegistry.tone(forID: toneID)?.displayName ?? toneID
         let hasFocusedInput = textOutputManager.hasFocusedTextInput(for: savedFrontmostApp)
         let metadataDict: [String: String] = [
             "tone": toneName,

@@ -19,6 +19,7 @@ final class ModelSelectionState {
     var index: Int = 0
 
     private init() {}
+    init(forTesting: Void) {}
 
     func reset() {
         candidates = []

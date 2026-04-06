@@ -27,6 +27,7 @@ final class ModelReadinessState {
     var modelsNeededMessage: String = ""
 
     private init() {}
+    init(forTesting: Void) {}
 
     func reset() {
         isDownloadingModel = false

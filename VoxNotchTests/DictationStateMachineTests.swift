@@ -26,6 +26,19 @@ final class MockStateMachineDelegate: DictationStateMachineDelegate {
     }
 }
 
+// MARK: - Terminal State Delegate (for pipeline completion detection)
+
+@MainActor
+final class TerminalStateDelegate: DictationStateMachineDelegate {
+    let handler: (DictationStateMachine, DictationState, DictationState) -> Void
+    init(handler: @escaping (DictationStateMachine, DictationState, DictationState) -> Void) {
+        self.handler = handler
+    }
+    func stateMachine(_ sm: DictationStateMachine, didTransitionFrom old: DictationState, to new: DictationState) {
+        handler(sm, old, new)
+    }
+}
+
 // MARK: - Tests
 
 @MainActor
@@ -33,10 +46,12 @@ final class DictationStateMachineTests: XCTestCase {
 
     private var sm: DictationStateMachine!
     private var delegate: MockStateMachineDelegate!
+    private var testClock: TestClock!
 
     override func setUp() {
         super.setUp()
-        sm = DictationStateMachine()
+        testClock = TestClock()
+        sm = DictationStateMachine(clock: testClock)
         delegate = MockStateMachineDelegate()
         sm.delegate = delegate
     }
@@ -44,6 +59,7 @@ final class DictationStateMachineTests: XCTestCase {
     override func tearDown() {
         sm = nil
         delegate = nil
+        testClock = nil
         super.tearDown()
     }
 
@@ -264,26 +280,24 @@ final class DictationStateMachineTests: XCTestCase {
     // MARK: - Duration Timer
 
     func testDurationTimerFiresCallback() {
-        let expectation = expectation(description: "duration tick")
         var receivedElapsed: TimeInterval?
 
-        sm.recordingStartTime = Date()
+        sm.recordingStartTime = testClock.now()
         sm.onRecordingDurationTick = { elapsed in
             receivedElapsed = elapsed
-            expectation.fulfill()
         }
 
         sm.startDurationTimer()
-        waitForExpectations(timeout: 2.0)
+        testClock.advance(by: 1.0)
         sm.stopDurationTimer()
 
         XCTAssertNotNil(receivedElapsed)
-        XCTAssertGreaterThan(receivedElapsed!, 0)
+        XCTAssertEqual(receivedElapsed!, 1.0, accuracy: 0.01)
     }
 
     func testTransitionAwayFromRecordingStopsDurationTimer() {
         var tickCount = 0
-        sm.recordingStartTime = Date()
+        sm.recordingStartTime = testClock.now()
         sm.onRecordingDurationTick = { _ in tickCount += 1 }
 
         sm.transition(to: .recording)
@@ -294,12 +308,8 @@ final class DictationStateMachineTests: XCTestCase {
 
         let initialCount = tickCount
 
-        // Wait to verify no more ticks arrive
-        let expectation = expectation(description: "wait for potential ticks")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            expectation.fulfill()
-        }
-        waitForExpectations(timeout: 3.0)
+        // Advance time — timer should be stopped, no new ticks
+        testClock.advance(by: 3.0)
 
         XCTAssertEqual(tickCount, initialCount, "Timer should have stopped — no new ticks")
     }
@@ -376,6 +386,7 @@ final class DictationPipelineTests: XCTestCase {
     private var mockTranscription: MockTranscriptionEngine!
     private var mockLLM: MockLLMProcessing!
     private var mockTextOutput: MockTextOutputting!
+    private var testClock: TestClock!
     private var sm: DictationStateMachine!
     private var delegate: MockStateMachineDelegate!
 
@@ -385,11 +396,13 @@ final class DictationPipelineTests: XCTestCase {
         mockTranscription = MockTranscriptionEngine()
         mockLLM = MockLLMProcessing()
         mockTextOutput = MockTextOutputting()
+        testClock = TestClock()
         sm = DictationStateMachine(
             audioManager: mockAudio,
             transcriptionEngine: mockTranscription,
             llmProcessor: mockLLM,
-            textOutputManager: mockTextOutput
+            textOutputManager: mockTextOutput,
+            clock: testClock
         )
         delegate = MockStateMachineDelegate()
         sm.delegate = delegate
@@ -402,7 +415,22 @@ final class DictationPipelineTests: XCTestCase {
         mockTranscription = nil
         mockLLM = nil
         mockTextOutput = nil
+        testClock = nil
         super.tearDown()
+    }
+
+    /// Wait for the state machine to reach a terminal state.
+    private func waitForTerminalState(timeout: TimeInterval = 2.0) async throws {
+        let expectation = XCTestExpectation(description: "SM reached terminal state")
+        let previous = sm.delegate
+        let captureDelegate = TerminalStateDelegate {
+            previous?.stateMachine($0, didTransitionFrom: $1, to: $2)
+            if case .idle = $2 { expectation.fulfill() }
+            else if case .error = $2 { expectation.fulfill() }
+        }
+        sm.delegate = captureDelegate
+        await fulfillment(of: [expectation], timeout: timeout)
+        sm.delegate = previous
     }
 
     // MARK: - beginRecording
@@ -429,7 +457,7 @@ final class DictationPipelineTests: XCTestCase {
 
     func testStopRecordingTranscribesAndOutputsText() async throws {
         try sm.beginRecording()
-        sm.recordingStartTime = Date().addingTimeInterval(-2) // 2 seconds ago
+        sm.recordingStartTime = testClock.now().addingTimeInterval(-2) // 2 seconds ago
 
         mockTextOutput.hasFocusedTextInputValue = true
 
@@ -441,7 +469,7 @@ final class DictationPipelineTests: XCTestCase {
         }
 
         sm.stopRecordingAndTranscribe(savedFrontmostApp: nil)
-        try await Task.sleep(for: .milliseconds(300))
+        try await waitForTerminalState()
 
         XCTAssertEqual(mockAudio.stopRecordingCallCount, 1)
         XCTAssertEqual(mockTranscription.transcribeCallCount, 1)
@@ -471,7 +499,7 @@ final class DictationPipelineTests: XCTestCase {
 
     func testEmptyTranscriptionReturnsToIdle() async throws {
         try sm.beginRecording()
-        sm.recordingStartTime = Date().addingTimeInterval(-2)
+        sm.recordingStartTime = testClock.now().addingTimeInterval(-2)
 
         mockTranscription.stubbedResult = TranscriptionResult(
             text: "", confidence: nil, audioDuration: 1.0,
@@ -479,7 +507,7 @@ final class DictationPipelineTests: XCTestCase {
         )
 
         sm.stopRecordingAndTranscribe(savedFrontmostApp: nil)
-        try await Task.sleep(for: .milliseconds(300))
+        try await waitForTerminalState()
 
         XCTAssertEqual(sm.state, .idle)
         XCTAssertEqual(mockTextOutput.outputCallCount, 0)
@@ -489,7 +517,7 @@ final class DictationPipelineTests: XCTestCase {
 
     func testLowConfidenceDiscards() async throws {
         try sm.beginRecording()
-        sm.recordingStartTime = Date().addingTimeInterval(-2)
+        sm.recordingStartTime = testClock.now().addingTimeInterval(-2)
 
         mockTranscription.stubbedResult = TranscriptionResult(
             text: "phantom", confidence: 0.3, audioDuration: 1.0,
@@ -497,7 +525,7 @@ final class DictationPipelineTests: XCTestCase {
         )
 
         sm.stopRecordingAndTranscribe(savedFrontmostApp: nil)
-        try await Task.sleep(for: .milliseconds(300))
+        try await waitForTerminalState()
 
         XCTAssertEqual(sm.state, .idle)
         XCTAssertEqual(mockTextOutput.outputCallCount, 0)
@@ -507,7 +535,7 @@ final class DictationPipelineTests: XCTestCase {
 
     func testClipboardFallbackWhenNoFocusedInput() async throws {
         try sm.beginRecording()
-        sm.recordingStartTime = Date().addingTimeInterval(-2)
+        sm.recordingStartTime = testClock.now().addingTimeInterval(-2)
 
         mockTextOutput.hasFocusedTextInputValue = false
 
@@ -515,7 +543,7 @@ final class DictationPipelineTests: XCTestCase {
         sm.onPipelineOutputSuccess = { result in outputResult = result }
 
         sm.stopRecordingAndTranscribe(savedFrontmostApp: nil)
-        try await Task.sleep(for: .milliseconds(300))
+        try await waitForTerminalState()
 
         XCTAssertEqual(outputResult, .clipboard)
         XCTAssertEqual(mockTextOutput.copyCallCount, 1)
@@ -526,21 +554,21 @@ final class DictationPipelineTests: XCTestCase {
 
     func testLLMProcessingApplied() async throws {
         try sm.beginRecording()
-        sm.recordingStartTime = Date().addingTimeInterval(-2)
+        sm.recordingStartTime = testClock.now().addingTimeInterval(-2)
 
         mockLLM.isEnabled = true
         mockLLM.stubbedResult = .success(processedText: "enhanced text")
         mockTextOutput.hasFocusedTextInputValue = true
 
         sm.stopRecordingAndTranscribe(savedFrontmostApp: nil)
-        try await Task.sleep(for: .milliseconds(300))
+        try await waitForTerminalState()
 
         XCTAssertEqual(mockTextOutput.lastOutputText, "enhanced text")
     }
 
     func testLLMFallbackFiresWarning() async throws {
         try sm.beginRecording()
-        sm.recordingStartTime = Date().addingTimeInterval(-2)
+        sm.recordingStartTime = testClock.now().addingTimeInterval(-2)
 
         mockLLM.isEnabled = true
         mockLLM.stubbedResult = .fallback(originalText: "raw text", error: LLMError.apiError("API timeout"))
@@ -550,7 +578,7 @@ final class DictationPipelineTests: XCTestCase {
         sm.onLLMWarning = { msg in warningMessage = msg }
 
         sm.stopRecordingAndTranscribe(savedFrontmostApp: nil)
-        try await Task.sleep(for: .milliseconds(300))
+        try await waitForTerminalState()
 
         XCTAssertNotNil(warningMessage)
         // Should still output the fallback text
@@ -561,7 +589,7 @@ final class DictationPipelineTests: XCTestCase {
 
     func testTranscriptionErrorPreservesAudioURL() async throws {
         try sm.beginRecording()
-        sm.recordingStartTime = Date().addingTimeInterval(-2)
+        sm.recordingStartTime = testClock.now().addingTimeInterval(-2)
 
         mockTranscription.stubbedError = NSError(
             domain: "test", code: 1,
@@ -572,7 +600,7 @@ final class DictationPipelineTests: XCTestCase {
         sm.onPipelineErrorWithAudio = { url in errorAudioURL = url }
 
         sm.stopRecordingAndTranscribe(savedFrontmostApp: nil)
-        try await Task.sleep(for: .milliseconds(300))
+        try await waitForTerminalState()
 
         XCTAssertNotNil(errorAudioURL)
         if case .error = sm.state {} else {
@@ -593,7 +621,7 @@ final class DictationPipelineTests: XCTestCase {
         sm.onPipelineOutputSuccess = { _ in outputSuccessCalled = true }
 
         sm.retryTranscription(audioURL: tempFile, savedFrontmostApp: nil)
-        try await Task.sleep(for: .milliseconds(300))
+        try await waitForTerminalState()
 
         XCTAssertEqual(mockTranscription.transcribeCallCount, 1)
         XCTAssertTrue(outputSuccessCalled)
@@ -611,7 +639,7 @@ final class DictationPipelineTests: XCTestCase {
         )
 
         sm.retryTranscription(audioURL: tempFile, savedFrontmostApp: nil)
-        try await Task.sleep(for: .milliseconds(300))
+        try await waitForTerminalState()
 
         if case .error = sm.state {} else {
             XCTFail("Expected error state for empty retry")

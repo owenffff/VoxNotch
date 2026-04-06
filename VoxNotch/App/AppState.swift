@@ -18,10 +18,10 @@ final class AppState {
 
   // MARK: - Sub-States
 
-  let modelDownload = ModelReadinessState.shared
-  let modelSelection = ModelSelectionState.shared
-  let toneSelection = ToneSelectionState.shared
-  let error = ErrorState.shared
+  let modelDownload: ModelReadinessState
+  let modelSelection: ModelSelectionState
+  let toneSelection: ToneSelectionState
+  let error: ErrorState
 
   // MARK: - Dictation Phase
 
@@ -31,14 +31,6 @@ final class AppState {
   // MARK: - Current Transcription
 
   var currentTranscription: String = ""
-
-  // MARK: - LLM Status
-
-  /// Warning when LLM failed but transcription succeeded (non-blocking)
-  var llmWarning: String?
-
-  /// Whether LLM processing failed and retry is available
-  var llmFailedWithRetry: Bool = false
 
   // MARK: - Output Routing
 
@@ -90,7 +82,21 @@ final class AppState {
 
   // MARK: - Initialization
 
-  private init() {}
+  private init() {
+    self.modelDownload = .shared
+    self.modelSelection = .shared
+    self.toneSelection = .shared
+    self.error = .shared
+  }
+
+  /// Test-only initializer for hermetic test isolation.
+  /// Creates fresh sub-state instances that don't share state with production singletons.
+  init(forTesting: Void) {
+    self.modelDownload = ModelReadinessState(forTesting: ())
+    self.modelSelection = ModelSelectionState(forTesting: ())
+    self.toneSelection = ToneSelectionState(forTesting: ())
+    self.error = ErrorState(forTesting: ())
+  }
 
   // MARK: - Methods
 
@@ -98,25 +104,11 @@ final class AppState {
     error.clear()
   }
 
-  /// Set LLM warning (non-blocking, transcription still succeeded)
-  func setLLMWarning(_ message: String, canRetry: Bool) {
-    llmWarning = message
-    llmFailedWithRetry = canRetry
-  }
-
-  /// Clear LLM warning
-  func clearLLMWarning() {
-    llmWarning = nil
-    llmFailedWithRetry = false
-  }
-
   func reset() {
     dictationPhase = .idle
     modelDownload.reset()
     currentTranscription = ""
     error.reset()
-    llmWarning = nil
-    llmFailedWithRetry = false
     lastOutputResult = nil
     silenceWarningActive = false
     recordingDuration = 0

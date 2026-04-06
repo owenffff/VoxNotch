@@ -23,16 +23,32 @@ final class ErrorState {
         lastError != nil && lastAudioURL != nil
     }
 
+    // MARK: - LLM Warning (non-blocking, transcription still succeeded)
+
+    /// Warning message when LLM failed but transcription succeeded
+    var llmWarning: String?
+
+    /// Whether LLM processing failed and retry is available
+    var llmFailedWithRetry: Bool = false
+
     private init() {}
+    init(forTesting: Void) {}
 
     func clear() {
         lastError = nil
         lastErrorRecovery = nil
     }
 
+    func clearLLMWarning() {
+        llmWarning = nil
+        llmFailedWithRetry = false
+    }
+
     func reset() {
         lastError = nil
         lastErrorRecovery = nil
         lastAudioURL = nil
+        llmWarning = nil
+        llmFailedWithRetry = false
     }
 }

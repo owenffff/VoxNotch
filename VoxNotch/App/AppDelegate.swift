@@ -13,6 +13,7 @@ import os.log
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Properties
+    private lazy var container = ServiceContainer.shared
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var deviceChangeObserver: NSObjectProtocol?
@@ -28,7 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupSleepWakeHandling()
         configureAppBehavior()
 
-        if SettingsManager.shared.hasCompletedOnboarding {
+        if container.settings.hasCompletedOnboarding {
             startNormalOperation()
         } else {
             showOnboardingWizard()
@@ -226,9 +227,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Database
 
     private func initializeDatabase() {
-        Task {
+        Task { [container] in
             do {
-                try await DatabaseManager.shared.initialize()
+                try await container.databaseManager.initialize()
             } catch {
                 Logger(subsystem: "com.voxnotch", category: "AppDelegate").error("Failed to initialize database: \(error.localizedDescription)")
             }
@@ -250,7 +251,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.start()
 
         // Check model readiness (no auto-download)
-        let appState = AppState.shared
+        let appState = container.appState
+        let settings = container.settings
         Task {
             let modelManager = FluidAudioModelManager.shared
             let isReady = modelManager.quickDictationModelsReady()
@@ -259,7 +261,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 appState.modelDownload.isDownloadingModel = false
                 if !isReady {
                     appState.modelDownload.modelsNeeded = true
-                    let speechModelID = SettingsManager.shared.speechModel
+                    let speechModelID = settings.speechModel
                     let (builtin, custom) = SpeechModel.resolve(speechModelID)
                     let name = builtin?.displayName ?? custom?.displayName ?? speechModelID
                     appState.modelDownload.modelsNeededMessage = "Not downloaded: \(name)"
@@ -298,7 +300,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
 
         // Check for updates on launch if enabled
-        if SettingsManager.shared.checkForUpdatesAutomatically {
+        if container.settings.checkForUpdatesAutomatically {
             UpdateManager.shared.checkForUpdatesInBackground()
         }
     }

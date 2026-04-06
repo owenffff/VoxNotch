@@ -14,17 +14,15 @@ import os.log
 final class ErrorRouter {
 
     private let errorState: ErrorState
-    private let appState: AppState
     private let logger = Logger(subsystem: "com.voxnotch", category: "ErrorRouter")
 
-    nonisolated init(errorState: ErrorState, appState: AppState) {
+    nonisolated init(errorState: ErrorState) {
         self.errorState = errorState
-        self.appState = appState
     }
 
     /// Convenience init using shared instances. Must be called from MainActor context.
     @MainActor convenience init() {
-        self.init(errorState: .shared, appState: .shared)
+        self.init(errorState: .shared)
     }
 
     /// Surface a user-facing error (shown in notch UI).
@@ -37,7 +35,8 @@ final class ErrorRouter {
 
     /// Surface a non-blocking warning (LLM fallback).
     func reportWarning(_ message: String, canRetry: Bool = false) {
-        appState.setLLMWarning(message, canRetry: canRetry)
+        errorState.llmWarning = message
+        errorState.llmFailedWithRetry = canRetry
         logger.warning("Warning: \(message)")
     }
 
