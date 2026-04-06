@@ -157,7 +157,7 @@ final class FluidAudioProvider: TranscriptionProvider, @unchecked Sendable {
       }
 
       let manager = AsrManager()
-      try await manager.initialize(models: models)
+      try await manager.loadModels(models)
 
       lock.lock()
       asrManager = manager

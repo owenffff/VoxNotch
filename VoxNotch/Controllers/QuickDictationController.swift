@@ -42,6 +42,10 @@ final class QuickDictationController {
     private let hotkeyManager: HotkeyManager
     private let audioManager: AudioRecording
     private let appState: AppState
+    private let notchPresenter: NotchPresenting
+    private let soundManager: SoundManager
+    private let settings: SettingsManager
+    private let errorRouter: ErrorRouter
 
     /// The frontmost application when the user pressed the hotkey.
     /// Captured before the notch panel appears so AX queries target the correct app.
@@ -58,18 +62,27 @@ final class QuickDictationController {
         textOutputManager: TextOutputting = TextOutputManager.shared,
         transcriptionEngine: TranscriptionEngine = TranscriptionService.shared,
         llmProcessor: LLMProcessing = LLMService.shared,
-        appState: AppState = .shared
+        appState: AppState = .shared,
+        notchPresenter: NotchPresenting = NotchManager.shared,
+        soundManager: SoundManager = .shared,
+        settings: SettingsManager = .shared,
+        errorRouter: ErrorRouter? = nil
     ) {
         self.hotkeyManager = hotkeyManager
         self.audioManager = audioManager
         self.appState = appState
+        self.notchPresenter = notchPresenter
+        self.soundManager = soundManager
+        self.settings = settings
+        self.errorRouter = errorRouter ?? ErrorRouter()
 
         // State machine owns the pipeline dependencies
         self.stateMachine = DictationStateMachine(
             audioManager: audioManager,
             transcriptionEngine: transcriptionEngine,
             llmProcessor: llmProcessor,
-            textOutputManager: textOutputManager
+            textOutputManager: textOutputManager,
+            settings: settings
         )
 
         stateMachine.delegate = self
@@ -83,19 +96,19 @@ final class QuickDictationController {
             self?.cancelCurrentSession()
         }
         stateMachine.onPipelineOutputSuccess = { [weak self] result in
-            self?.appState.lastAudioURL = nil
+            self?.appState.error.lastAudioURL = nil
             self?.appState.lastOutputResult = result
-            NotchManager.shared.showOutputResult(result)
-            SoundManager.shared.playSuccessSound()
+            self?.notchPresenter.showOutputResult(result)
+            self?.soundManager.playSuccessSound()
         }
-        stateMachine.onPipelineCancelled = {
-            NotchManager.shared.hide()
+        stateMachine.onPipelineCancelled = { [weak self] in
+            self?.notchPresenter.hide()
         }
         stateMachine.onLLMWarning = { [weak self] message in
-            self?.appState.setLLMWarning(message, canRetry: false)
+            self?.errorRouter.reportWarning(message)
         }
         stateMachine.onPipelineErrorWithAudio = { [weak self] audioURL in
-            self?.appState.lastAudioURL = audioURL
+            self?.appState.error.lastAudioURL = audioURL
         }
 
         setupHotkeyHandler()
@@ -234,17 +247,16 @@ final class QuickDictationController {
         }
 
         // Retry redirect
-        if appState.canRetryTranscription {
+        if appState.error.canRetryTranscription {
             retryTranscription()
             return
         }
 
         // Clear stale transient flags
-        appState.clearError()
-        appState.lastAudioURL = nil
-        appState.modelsNeeded = false
-        appState.outputNotification = nil
-        appState.isShowingConfirmation = false
+        errorRouter.clear()
+        appState.error.lastAudioURL = nil
+        appState.modelDownload.modelsNeeded = false
+        notchPresenter.clearTransient()
 
         // Cancel if busy
         if case .warmingUp = stateMachine.state {
@@ -262,7 +274,7 @@ final class QuickDictationController {
         stateMachine.transition(to: .idle)
 
         // Model download pre-check
-        let speechModelID = SettingsManager.shared.speechModel
+        let speechModelID = settings.speechModel
         let (builtinModel, customModel) = SpeechModel.resolve(speechModelID)
         let isModelDownloaded: Bool
         let modelDisplayName: String
@@ -279,16 +291,16 @@ final class QuickDictationController {
         if !isModelDownloaded {
             logger.info("Model not downloaded, directing to Settings")
             let message: String
-            if SettingsManager.shared.onboardingModelState == .skipped {
+            if settings.onboardingModelState == .skipped {
                 message = "Download a speech model in Settings to start dictating"
             } else {
                 message = "Not downloaded: \(modelDisplayName)"
             }
             withAnimation(.smooth(duration: 0.4)) {
-                appState.modelsNeeded = true
-                appState.modelsNeededMessage = message
+                appState.modelDownload.modelsNeeded = true
+                appState.modelDownload.modelsNeededMessage = message
             }
-            NotchManager.shared.showModelsNeeded(appState.modelsNeededMessage)
+            notchPresenter.showModelsNeeded(appState.modelDownload.modelsNeededMessage)
             return
         }
 
@@ -319,14 +331,12 @@ final class QuickDictationController {
     // MARK: - Retry
 
     func retryTranscription() {
-        guard let audioURL = appState.lastAudioURL else { return }
+        guard let audioURL = appState.error.lastAudioURL else { return }
         guard FileManager.default.fileExists(atPath: audioURL.path) else {
-            appState.lastAudioURL = nil
+            appState.error.lastAudioURL = nil
             return
         }
-        appState.lastError = nil
-        appState.lastErrorRecovery = nil
-        appState.lastAudioURL = nil
+        appState.error.reset()
         stateMachine.retryTranscription(audioURL: audioURL, savedFrontmostApp: savedFrontmostApp)
     }
 
@@ -342,7 +352,7 @@ final class QuickDictationController {
         logger.debug("Cancelling current session")
         savedFrontmostApp = nil
         stateMachine.cancelPipeline()
-        NotchManager.shared.hide()
+        notchPresenter.hide()
     }
 
     // MARK: - Tone Selection
@@ -365,9 +375,9 @@ final class QuickDictationController {
     }
 
     private func getPinnedTones() -> [ToneTemplate] {
-        let ids = SettingsManager.shared.pinnedToneIDs.isEmpty
+        let ids = settings.pinnedToneIDs.isEmpty
             ? ["formal", "fixGrammar"]
-            : SettingsManager.shared.pinnedToneIDs
+            : settings.pinnedToneIDs
         let pinned = ids.compactMap { ToneRegistry.shared.tone(forID: $0) }
         if let noneTone = ToneRegistry.shared.tone(forID: "none") {
             return [noneTone] + pinned
@@ -377,35 +387,34 @@ final class QuickDictationController {
 
     private func enterToneSelectionMode(direction: Int) {
         let candidates = getPinnedTones()
-        appState.toneSelectionCandidates = candidates
-        appState.toneSelectionIndex = 0
+        appState.toneSelection.candidates = candidates
+        appState.toneSelection.index = 0
         stateMachine.transition(to: .toneSelecting)
     }
 
     private func cycleToneSelection(direction: Int) {
-        let total = appState.toneSelectionCandidates.count + 1
-        let current = appState.toneSelectionIndex
-        appState.toneSelectionIndex = ((current + direction) + total) % total
+        let total = appState.toneSelection.candidates.count + 1
+        let current = appState.toneSelection.index
+        appState.toneSelection.index = ((current + direction) + total) % total
     }
 
     private func confirmToneSelection() {
-        appState.modelsNeeded = false
-        appState.outputNotification = nil
-        appState.isShowingConfirmation = false
+        appState.modelDownload.modelsNeeded = false
+        notchPresenter.clearTransient()
 
-        let index = appState.toneSelectionIndex
-        let candidates = appState.toneSelectionCandidates
+        let index = appState.toneSelection.index
+        let candidates = appState.toneSelection.candidates
 
         if index >= candidates.count {
             appState.navigateToSettingsPanel = SettingsPanel.ai.rawValue
             SettingsWindowController.shared.showNavigatingToAIEnhancement()
             stateMachine.transition(to: .idle)
-            NotchManager.shared.hide()
+            notchPresenter.hide()
         } else {
             let selected = candidates[index]
-            SettingsManager.shared.activeToneID = selected.id
+            settings.activeToneID = selected.id
             logger.info("Tone switched to \(selected.displayName)")
-            NotchManager.shared.showConfirmation(selected.displayName)
+            notchPresenter.showConfirmation(selected.displayName)
             stateMachine.transition(to: .idle)
         }
     }
@@ -430,9 +439,9 @@ final class QuickDictationController {
     }
 
     private func getPinnedModels() -> [AnyModel] {
-        let ids = SettingsManager.shared.pinnedModelIDs.isEmpty
+        let ids = settings.pinnedModelIDs.isEmpty
             ? Array(SpeechModel.allCases.prefix(3)).map(\.rawValue)
-            : SettingsManager.shared.pinnedModelIDs
+            : settings.pinnedModelIDs
         return ids.compactMap { id -> AnyModel? in
             if let builtin = SpeechModel(rawValue: id) { return .builtin(builtin) }
             if let custom = CustomModelRegistry.shared.model(withID: id) { return .custom(custom) }
@@ -442,44 +451,43 @@ final class QuickDictationController {
 
     private func enterModelSelectionMode(direction: Int) {
         let candidates = getPinnedModels()
-        appState.modelSelectionCandidates = candidates
-        appState.modelSelectionIndex = 0
+        appState.modelSelection.candidates = candidates
+        appState.modelSelection.index = 0
         stateMachine.transition(to: .modelSelecting)
     }
 
     private func cycleModelSelection(direction: Int) {
-        let total = appState.modelSelectionCandidates.count + 1
-        let current = appState.modelSelectionIndex
-        appState.modelSelectionIndex = ((current + direction) + total) % total
+        let total = appState.modelSelection.candidates.count + 1
+        let current = appState.modelSelection.index
+        appState.modelSelection.index = ((current + direction) + total) % total
     }
 
     private func confirmModelSelection() {
-        appState.modelsNeeded = false
-        appState.outputNotification = nil
-        appState.isShowingConfirmation = false
+        appState.modelDownload.modelsNeeded = false
+        notchPresenter.clearTransient()
 
-        let index = appState.modelSelectionIndex
-        let candidates = appState.modelSelectionCandidates
+        let index = appState.modelSelection.index
+        let candidates = appState.modelSelection.candidates
 
         if index >= candidates.count {
             appState.navigateToSettingsPanel = SettingsPanel.speechModel.rawValue
             SettingsWindowController.shared.showNavigatingToSpeechModel()
             stateMachine.transition(to: .idle)
-            NotchManager.shared.hide()
+            notchPresenter.hide()
         } else {
             let selected = candidates[index]
-            SettingsManager.shared.speechModel = selected.settingsID
+            settings.speechModel = selected.settingsID
             stateMachine.reconfigureTranscription()
             logger.info("Model switched to \(selected.displayName)")
 
             if selected.isDownloaded {
-                NotchManager.shared.showConfirmation(selected.displayName)
+                notchPresenter.showConfirmation(selected.displayName)
             } else {
                 withAnimation(.smooth(duration: 0.4)) {
-                    appState.modelsNeeded = true
-                    appState.modelsNeededMessage = "Not downloaded: \(selected.displayName)"
+                    appState.modelDownload.modelsNeeded = true
+                    appState.modelDownload.modelsNeededMessage = "Not downloaded: \(selected.displayName)"
                 }
-                NotchManager.shared.showModelsNeeded(appState.modelsNeededMessage)
+                notchPresenter.showModelsNeeded(appState.modelDownload.modelsNeededMessage)
             }
             stateMachine.transition(to: .idle)
         }
@@ -507,20 +515,19 @@ extension QuickDictationController: DictationStateMachineDelegate {
             appState.silenceWarningActive = false
 
             if case .error(let error) = newState {
-                appState.lastError = error.localizedDescription
-                appState.lastErrorRecovery = (error as? LocalizedError)?.recoverySuggestion
+                errorRouter.report(error)
             }
         }
 
         // NotchManager calls outside withAnimation (they do their own async work)
         switch newState {
-        case .recording:      NotchManager.shared.showRecording()
-        case .warmingUp:      NotchManager.shared.showTranscribing()
-        case .transcribing:   NotchManager.shared.showTranscribing()
-        case .processingLLM:  NotchManager.shared.showProcessingLLM()
-        case .modelSelecting: NotchManager.shared.showModelSelector()
-        case .toneSelecting:  NotchManager.shared.showToneSelector()
-        case .error(let e):   NotchManager.shared.showError(e.localizedDescription)
+        case .recording:      notchPresenter.showRecording()
+        case .warmingUp:      notchPresenter.showTranscribing()
+        case .transcribing:   notchPresenter.showTranscribing()
+        case .processingLLM:  notchPresenter.showProcessingLLM()
+        case .modelSelecting: notchPresenter.showModelSelector()
+        case .toneSelecting:  notchPresenter.showToneSelector()
+        case .error(let e):   notchPresenter.showError(e.localizedDescription)
         default: break
         }
 

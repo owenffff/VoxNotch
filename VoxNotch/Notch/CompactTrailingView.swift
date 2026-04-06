@@ -9,7 +9,8 @@ import SwiftUI
 
 struct CompactTrailingView: View {
 
-  private let appState = AppState.shared
+  @Environment(AppState.self) private var appState
+  @Environment(NotchManager.self) private var notchManager
 
   /// Single animation driver derived from AppState, avoiding
   /// competing `.animation()` modifiers.
@@ -24,10 +25,10 @@ struct CompactTrailingView: View {
     case .outputting, .error, .idle:
       break
     }
-    if appState.isDownloadingModel { return .downloading }
-    if appState.modelsNeeded       { return .modelsNeeded }
-    if appState.lastError != nil   { return .error }
-    if let output = appState.outputNotification {
+    if appState.modelDownload.isDownloadingModel { return .downloading }
+    if appState.modelDownload.modelsNeeded       { return .modelsNeeded }
+    if appState.error.lastError != nil           { return .error }
+    if let output = notchManager.outputNotification {
       switch output {
       case .inserted:        return .success
       case .clipboard:       return .clipboard
@@ -57,13 +58,13 @@ struct CompactTrailingView: View {
       statusText("Transcribing...")
     } else if case .processingLLM = appState.dictationPhase {
       statusText("Processing...")
-    } else if appState.isDownloadingModel {
+    } else if appState.modelDownload.isDownloadingModel {
       percentageText
-    } else if appState.modelsNeeded {
-      statusText(appState.modelsNeededMessage)
-    } else if let error = appState.lastError {
+    } else if appState.modelDownload.modelsNeeded {
+      statusText(appState.modelDownload.modelsNeededMessage)
+    } else if let error = appState.error.lastError {
       statusText(error)
-    } else if let result = appState.outputNotification {
+    } else if let result = notchManager.outputNotification {
       switch result {
       case .inserted:
         statusText("Text inserted")
@@ -103,7 +104,7 @@ struct CompactTrailingView: View {
   // MARK: - Percentage
 
   private var percentageText: some View {
-    Text("\(Int(appState.modelDownloadProgress * 100))%")
+    Text("\(Int(appState.modelDownload.modelDownloadProgress * 100))%")
       .font(.system(size: 12, design: .monospaced))
       .foregroundStyle(.secondary)
   }
@@ -112,8 +113,8 @@ struct CompactTrailingView: View {
 
   private var modelName: some View {
     Group {
-      let candidates = appState.modelSelectionCandidates
-      let index = appState.modelSelectionIndex
+      let candidates = appState.modelSelection.candidates
+      let index = appState.modelSelection.index
 
       if index < candidates.count {
         Text(candidates[index].displayName)
@@ -131,8 +132,8 @@ struct CompactTrailingView: View {
 
   private var toneName: some View {
     Group {
-      let candidates = appState.toneSelectionCandidates
-      let index = appState.toneSelectionIndex
+      let candidates = appState.toneSelection.candidates
+      let index = appState.toneSelection.index
 
       if index < candidates.count {
         Text(candidates[index].displayName)

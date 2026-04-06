@@ -9,7 +9,9 @@ import SwiftUI
 
 struct NotchExpandedFallbackView: View {
 
-  private let appState = AppState.shared
+  @Environment(AppState.self) private var appState
+  @Environment(NotchManager.self) private var notchManager
+  @Environment(AudioVisualizationState.self) private var audioViz
   @State private var dotBreathing = false
 
   /// Single value that captures which phase the UI is in, used as the
@@ -26,17 +28,17 @@ struct NotchExpandedFallbackView: View {
     case .outputting, .error, .idle:
       break
     }
-    if appState.isDownloadingModel    { return .downloading }
-    if appState.modelsNeeded          { return .modelsNeeded }
-    if appState.lastError != nil      { return .error }
-    if let output = appState.outputNotification {
+    if appState.modelDownload.isDownloadingModel { return .downloading }
+    if appState.modelDownload.modelsNeeded      { return .modelsNeeded }
+    if appState.error.lastError != nil          { return .error }
+    if let output = notchManager.outputNotification {
       switch output {
       case .inserted:        return .success
       case .clipboard:       return .clipboard
       case .clipboardAborted: return .clipboardAborted
       }
     }
-    if appState.isShowingConfirmation { return .confirmation }
+    if notchManager.isShowingConfirmation { return .confirmation }
     return .idle
   }
 
@@ -64,22 +66,22 @@ struct NotchExpandedFallbackView: View {
       spinnerRow(title: "Transcribing…")
     } else if case .processingLLM = appState.dictationPhase {
       spinnerRow(title: "Processing…")
-    } else if appState.isDownloadingModel {
+    } else if appState.modelDownload.isDownloadingModel {
       downloadRow
-    } else if appState.modelsNeeded {
+    } else if appState.modelDownload.modelsNeeded {
       transientRow(
         icon: "exclamationmark.triangle.fill",
         color: .notchAmber,
-        title: appState.modelsNeededMessage
+        title: appState.modelDownload.modelsNeededMessage
       )
-    } else if let error = appState.lastError {
+    } else if let error = appState.error.lastError {
       transientRow(
         icon: "xmark.circle.fill",
         color: .notchRed,
         title: shortenError(error),
-        subtitle: appState.canRetryTranscription ? "Press hotkey to retry" : appState.lastErrorRecovery
+        subtitle: appState.error.canRetryTranscription ? "Press hotkey to retry" : appState.error.lastErrorRecovery
       )
-    } else if let result = appState.outputNotification {
+    } else if let result = notchManager.outputNotification {
       switch result {
       case .inserted:
         transientRow(
@@ -100,11 +102,11 @@ struct NotchExpandedFallbackView: View {
           title: "App switched — ⌘V to paste"
         )
       }
-    } else if appState.isShowingConfirmation {
+    } else if notchManager.isShowingConfirmation {
       transientRow(
         icon: "checkmark.circle.fill",
         color: .notchGreen,
-        title: appState.confirmationMessage
+        title: notchManager.confirmationMessage
       )
     } else {
       EmptyView()
@@ -126,7 +128,7 @@ struct NotchExpandedFallbackView: View {
           value: dotBreathing
         )
 
-      ScrollingWaveformView(level: AudioVisualizationState.shared.audioLevel)
+      ScrollingWaveformView(level: audioViz.audioLevel)
         .frame(maxWidth: .infinity)
         .frame(height: 14)
 
@@ -154,10 +156,10 @@ struct NotchExpandedFallbackView: View {
 
   private var downloadRow: some View {
     HStack(spacing: 10) {
-      ProgressView(value: appState.modelDownloadProgress)
+      ProgressView(value: appState.modelDownload.modelDownloadProgress)
         .frame(maxWidth: .infinity)
 
-      Text("\(Int(appState.modelDownloadProgress * 100))%")
+      Text("\(Int(appState.modelDownload.modelDownloadProgress * 100))%")
         .font(.system(size: 12, design: .monospaced))
         .foregroundStyle(.secondary)
         .contentTransition(.numericText())
@@ -184,13 +186,13 @@ struct NotchExpandedFallbackView: View {
         .font(.system(size: 11))
         .foregroundStyle(.tertiary)
     }
-    .animation(.smooth(duration: 0.2), value: appState.modelSelectionIndex)
+    .animation(.smooth(duration: 0.2), value: appState.modelSelection.index)
   }
 
   private var modelNameLabel: some View {
     Group {
-      let candidates = appState.modelSelectionCandidates
-      let index = appState.modelSelectionIndex
+      let candidates = appState.modelSelection.candidates
+      let index = appState.modelSelection.index
 
       if index < candidates.count {
         Text(candidates[index].displayName)
@@ -228,13 +230,13 @@ struct NotchExpandedFallbackView: View {
         .font(.system(size: 11))
         .foregroundStyle(.tertiary)
     }
-    .animation(.smooth(duration: 0.2), value: appState.toneSelectionIndex)
+    .animation(.smooth(duration: 0.2), value: appState.toneSelection.index)
   }
 
   private var toneNameLabel: some View {
     Group {
-      let candidates = appState.toneSelectionCandidates
-      let index = appState.toneSelectionIndex
+      let candidates = appState.toneSelection.candidates
+      let index = appState.toneSelection.index
 
       if index < candidates.count {
         Text(candidates[index].displayName)

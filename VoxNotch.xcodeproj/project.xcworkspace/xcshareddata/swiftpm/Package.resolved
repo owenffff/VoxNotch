@@ -1,13 +1,13 @@
 {
-  "originHash" : "ed5fee51ee3a5bcb1e9d818bc644fc870c19a2b7ddaff516ec9a9195232fd3fe",
+  "originHash" : "3240fe9961914d62b05d8b9ecabd65ad7a64f4bf59717bd9145ec15f470f598a",
   "pins" : [
     {
       "identity" : "anylanguagemodel",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/mattt/AnyLanguageModel",
+      "location" : "https://github.com/huggingface/AnyLanguageModel",
       "state" : {
-        "revision" : "060866f8c1a4b3f5c52ccac406d51ab903dbeab6",
-        "version" : "0.6.0"
+        "revision" : "531eb67bcd2abd6320276926f867f51f2b874ce5",
+        "version" : "0.7.1"
       }
     },
     {
@@ -34,7 +34,7 @@
       "location" : "https://github.com/FluidInference/FluidAudio",
       "state" : {
         "branch" : "main",
-        "revision" : "b354014c37b8aa7705aeaabcbb234c80ba93aae0"
+        "revision" : "6c40eca4310efffe80e723f1e628f6cf76d3feaf"
       }
     },
     {

@@ -9,7 +9,9 @@ import SwiftUI
 
 struct CompactLeadingView: View {
 
-  private let appState = AppState.shared
+  @Environment(AppState.self) private var appState
+  @Environment(NotchManager.self) private var notchManager
+  @Environment(AudioVisualizationState.self) private var audioViz
   @State private var dotBreathing = false
 
   /// Single animation driver derived from AppState, avoiding
@@ -24,10 +26,10 @@ struct CompactLeadingView: View {
     case .outputting, .error, .idle:
       break
     }
-    if appState.isDownloadingModel { return .downloading }
-    if appState.modelsNeeded       { return .modelsNeeded }
-    if appState.lastError != nil   { return .error }
-    if let output = appState.outputNotification {
+    if appState.modelDownload.isDownloadingModel { return .downloading }
+    if appState.modelDownload.modelsNeeded       { return .modelsNeeded }
+    if appState.error.lastError != nil           { return .error }
+    if let output = notchManager.outputNotification {
       switch output {
       case .inserted:        return .success
       case .clipboard:       return .clipboard
@@ -57,13 +59,13 @@ struct CompactLeadingView: View {
       spinner
     } else if case .processingLLM = appState.dictationPhase {
       spinner
-    } else if appState.isDownloadingModel {
+    } else if appState.modelDownload.isDownloadingModel {
       progressBar
-    } else if appState.modelsNeeded {
+    } else if appState.modelDownload.modelsNeeded {
       statusIcon("exclamationmark.triangle.fill", color: .notchAmber)
-    } else if appState.lastError != nil {
+    } else if appState.error.lastError != nil {
       statusIcon("xmark.circle.fill", color: .notchRed)
-    } else if let result = appState.outputNotification {
+    } else if let result = notchManager.outputNotification {
       switch result {
       case .inserted:
         statusIcon("checkmark.circle.fill", color: .notchGreen)
@@ -92,7 +94,7 @@ struct CompactLeadingView: View {
           value: dotBreathing
         )
 
-      ScrollingWaveformView(level: AudioVisualizationState.shared.audioLevel)
+      ScrollingWaveformView(level: audioViz.audioLevel)
         .frame(maxWidth: .infinity)
     }
   }
@@ -107,7 +109,7 @@ struct CompactLeadingView: View {
   // MARK: - Progress Bar
 
   private var progressBar: some View {
-    ProgressView(value: appState.modelDownloadProgress)
+    ProgressView(value: appState.modelDownload.modelDownloadProgress)
       .frame(maxWidth: .infinity)
   }
 

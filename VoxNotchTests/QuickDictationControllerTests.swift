@@ -3,7 +3,8 @@
 //  VoxNotchTests
 //
 //  Tests the injectable dependency paths of QuickDictationController.
-//  Uses mock AudioRecording, TranscriptionEngine, LLMProcessing, and TextOutputting.
+//  Uses mock AudioRecording, TranscriptionEngine, LLMProcessing, TextOutputting,
+//  and MockNotchPresenter.
 //
 
 import XCTest
@@ -16,6 +17,7 @@ final class QuickDictationControllerTests: XCTestCase {
     private var mockTranscription: MockTranscriptionEngine!
     private var mockLLM: MockLLMProcessing!
     private var mockTextOutput: MockTextOutputting!
+    private var mockNotch: MockNotchPresenter!
     private var appState: AppState!
     private var controller: QuickDictationController!
 
@@ -25,6 +27,7 @@ final class QuickDictationControllerTests: XCTestCase {
         mockTranscription = MockTranscriptionEngine()
         mockLLM = MockLLMProcessing()
         mockTextOutput = MockTextOutputting()
+        mockNotch = MockNotchPresenter()
         appState = AppState.shared
 
         appState.reset()
@@ -33,7 +36,8 @@ final class QuickDictationControllerTests: XCTestCase {
             audioManager: mockAudio,
             textOutputManager: mockTextOutput,
             transcriptionEngine: mockTranscription,
-            llmProcessor: mockLLM
+            llmProcessor: mockLLM,
+            notchPresenter: mockNotch
         )
     }
 
@@ -44,7 +48,22 @@ final class QuickDictationControllerTests: XCTestCase {
         mockTranscription = nil
         mockLLM = nil
         mockTextOutput = nil
+        mockNotch = nil
         super.tearDown()
+    }
+
+    // MARK: - Helpers
+
+    /// Wait for the pipeline to reach a terminal state (.idle or .error) via onStateChange.
+    private func waitForPipelineCompletion(timeout: TimeInterval = 2.0) async throws {
+        let expectation = XCTestExpectation(description: "Pipeline reached terminal state")
+        let previousCallback = controller.onStateChange
+        controller.onStateChange = { state in
+            previousCallback?(state)
+            if case .idle = state { expectation.fulfill() }
+            else if case .error = state { expectation.fulfill() }
+        }
+        await fulfillment(of: [expectation], timeout: timeout)
     }
 
     // MARK: - Initial State
@@ -65,13 +84,12 @@ final class QuickDictationControllerTests: XCTestCase {
     // MARK: - retryTranscription() — success
 
     func testRetryTranscriptionOutputsText() async throws {
-        // Set up: simulate a previous failed transcription with saved audio
         let tempFile = FileManager.default.temporaryDirectory.appendingPathComponent("test_retry.wav")
         FileManager.default.createFile(atPath: tempFile.path, contents: Data([0]), attributes: nil)
         defer { try? FileManager.default.removeItem(at: tempFile) }
 
-        appState.lastAudioURL = tempFile
-        appState.lastError = "Previous error"
+        appState.error.lastAudioURL = tempFile
+        appState.error.lastError = "Previous error"
 
         mockTranscription.stubbedResult = TranscriptionResult(
             text: "hello world",
@@ -84,16 +102,16 @@ final class QuickDictationControllerTests: XCTestCase {
         )
 
         controller.retryTranscription()
-
-        // Wait for the async pipeline to complete
-        try await Task.sleep(for: .milliseconds(200))
+        try await waitForPipelineCompletion()
 
         XCTAssertEqual(mockTranscription.ensureReadyCallCount, 1)
         XCTAssertEqual(mockTranscription.transcribeCallCount, 1)
         XCTAssertEqual(mockTranscription.lastTranscribeURL, tempFile)
-        // Text should have been output (paste or clipboard)
         let outputted = (mockTextOutput.outputCallCount > 0) || (mockTextOutput.copyCallCount > 0)
         XCTAssertTrue(outputted, "Text should have been output via paste or clipboard")
+        // Verify notch was called (not silently using real NotchManager)
+        XCTAssertGreaterThan(mockNotch.showOutputResultCallCount + mockNotch.showErrorCallCount, 0,
+                             "Pipeline should have called notch presenter")
     }
 
     // MARK: - retryTranscription() — empty text
@@ -103,8 +121,8 @@ final class QuickDictationControllerTests: XCTestCase {
         FileManager.default.createFile(atPath: tempFile.path, contents: Data([0]), attributes: nil)
         defer { try? FileManager.default.removeItem(at: tempFile) }
 
-        appState.lastAudioURL = tempFile
-        appState.lastError = "Previous error"
+        appState.error.lastAudioURL = tempFile
+        appState.error.lastError = "Previous error"
 
         mockTranscription.stubbedResult = TranscriptionResult(
             text: "",
@@ -117,16 +135,14 @@ final class QuickDictationControllerTests: XCTestCase {
         )
 
         controller.retryTranscription()
-        try await Task.sleep(for: .milliseconds(200))
+        try await waitForPipelineCompletion()
 
-        // Empty text → error state (noSpeechDetected)
         if case .error = controller.state {
             // expected
         } else {
             XCTFail("Expected error state for empty transcription, got \(controller.state)")
         }
 
-        // No text should have been output
         XCTAssertEqual(mockTextOutput.outputCallCount, 0)
         XCTAssertEqual(mockTextOutput.copyCallCount, 0)
     }
@@ -138,8 +154,8 @@ final class QuickDictationControllerTests: XCTestCase {
         FileManager.default.createFile(atPath: tempFile.path, contents: Data([0]), attributes: nil)
         defer { try? FileManager.default.removeItem(at: tempFile) }
 
-        appState.lastAudioURL = tempFile
-        appState.lastError = "Previous error"
+        appState.error.lastAudioURL = tempFile
+        appState.error.lastError = "Previous error"
 
         mockTranscription.stubbedError = NSError(
             domain: "test", code: 1,
@@ -147,10 +163,10 @@ final class QuickDictationControllerTests: XCTestCase {
         )
 
         controller.retryTranscription()
-        try await Task.sleep(for: .milliseconds(200))
+        try await waitForPipelineCompletion()
 
         if case .error = controller.state {
-            XCTAssertNotNil(appState.lastError)
+            XCTAssertNotNil(appState.error.lastError)
         } else {
             XCTFail("Expected error state, got \(controller.state)")
         }
@@ -159,23 +175,21 @@ final class QuickDictationControllerTests: XCTestCase {
     // MARK: - retryTranscription() — missing file
 
     func testRetryTranscriptionMissingFileClears() {
-        appState.lastAudioURL = URL(fileURLWithPath: "/nonexistent/file.wav")
-        appState.lastError = "Previous error"
+        appState.error.lastAudioURL = URL(fileURLWithPath: "/nonexistent/file.wav")
+        appState.error.lastError = "Previous error"
 
         controller.retryTranscription()
 
-        // Should have cleared the stale URL
-        XCTAssertNil(appState.lastAudioURL)
+        XCTAssertNil(appState.error.lastAudioURL)
     }
 
     // MARK: - retryTranscription() — no saved audio
 
     func testRetryTranscriptionNoAudioIsNoop() {
-        appState.lastAudioURL = nil
+        appState.error.lastAudioURL = nil
 
         controller.retryTranscription()
 
-        // Should remain idle
         XCTAssertEqual(controller.state, .idle)
         XCTAssertEqual(mockTranscription.transcribeCallCount, 0)
     }
@@ -183,13 +197,12 @@ final class QuickDictationControllerTests: XCTestCase {
     // MARK: - Delegate: AppState sync
 
     func testDelegateSyncsErrorState() async throws {
-        // Verify that AppState booleans are correctly synced for a terminal error state
         let tempFile = FileManager.default.temporaryDirectory.appendingPathComponent("test_sync.wav")
         FileManager.default.createFile(atPath: tempFile.path, contents: Data([0]), attributes: nil)
         defer { try? FileManager.default.removeItem(at: tempFile) }
 
-        appState.lastAudioURL = tempFile
-        appState.lastError = "test"
+        appState.error.lastAudioURL = tempFile
+        appState.error.lastError = "test"
 
         mockTranscription.stubbedError = NSError(
             domain: "test", code: 1,
@@ -197,23 +210,21 @@ final class QuickDictationControllerTests: XCTestCase {
         )
 
         controller.retryTranscription()
-        try await Task.sleep(for: .milliseconds(200))
+        try await waitForPipelineCompletion()
 
-        // Error is a terminal state — AppState should reflect it
-        XCTAssertNotNil(appState.lastError)
+        XCTAssertNotNil(appState.error.lastError)
         if case .error = appState.dictationPhase {} else {
             XCTFail("Expected dictationPhase to be .error, got \(appState.dictationPhase)")
         }
     }
 
     func testDelegateSyncsIdleAfterSuccess() async throws {
-        // Verify that AppState is clean after a successful retry
         let tempFile = FileManager.default.temporaryDirectory.appendingPathComponent("test_idle_sync.wav")
         FileManager.default.createFile(atPath: tempFile.path, contents: Data([0]), attributes: nil)
         defer { try? FileManager.default.removeItem(at: tempFile) }
 
-        appState.lastAudioURL = tempFile
-        appState.lastError = "test"
+        appState.error.lastAudioURL = tempFile
+        appState.error.lastError = "test"
 
         mockTranscription.stubbedResult = TranscriptionResult(
             text: "sync test",
@@ -226,9 +237,8 @@ final class QuickDictationControllerTests: XCTestCase {
         )
 
         controller.retryTranscription()
-        try await Task.sleep(for: .milliseconds(300))
+        try await waitForPipelineCompletion()
 
-        // After success, should be back to idle
         XCTAssertEqual(controller.state, .idle)
         XCTAssertEqual(appState.dictationPhase, .idle)
     }
@@ -245,8 +255,8 @@ final class QuickDictationControllerTests: XCTestCase {
         FileManager.default.createFile(atPath: tempFile.path, contents: Data([0]), attributes: nil)
         defer { try? FileManager.default.removeItem(at: tempFile) }
 
-        appState.lastAudioURL = tempFile
-        appState.lastError = "test"
+        appState.error.lastAudioURL = tempFile
+        appState.error.lastError = "test"
         mockTranscription.stubbedResult = TranscriptionResult(
             text: "test",
             confidence: 0.9,
@@ -258,9 +268,17 @@ final class QuickDictationControllerTests: XCTestCase {
         )
 
         controller.retryTranscription()
-        try await Task.sleep(for: .milliseconds(300))
+        // Use expectation-based wait via helper — captures states deterministically
+        let expectation = XCTestExpectation(description: "Pipeline done")
+        let previousCallback = controller.onStateChange
+        controller.onStateChange = { state in
+            previousCallback?(state)
+            receivedStates.append(state)
+            if case .idle = state { expectation.fulfill() }
+            else if case .error = state { expectation.fulfill() }
+        }
+        await fulfillment(of: [expectation], timeout: 2.0)
 
-        // Should have received multiple state transitions
         XCTAssertGreaterThan(receivedStates.count, 0, "onStateChange should fire for transitions")
     }
 }

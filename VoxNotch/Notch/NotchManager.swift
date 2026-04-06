@@ -38,12 +38,27 @@ final class NotchManager {
   /// Animated to 0 before `orderOut` to avoid the visible snap.
   var panelOpacity: CGFloat = 1.0
 
+  // MARK: - Transient Display State
+
+  /// Set when showing the output notification, cleared on hide.
+  var outputNotification: OutputResult? = nil
+
+  /// Brief confirmation shown after model/tone selection before auto-hide.
+  var isShowingConfirmation = false
+  var confirmationMessage: String = ""
+
+  /// Clear all transient display state.
+  func clearTransient() {
+    outputNotification = nil
+    isShowingConfirmation = false
+    confirmationMessage = ""
+  }
+
   // MARK: - Private
 
   private var panel: NotchPanel?
   private var autoHideTask: Task<Void, Never>?
   private var fadeOutTask: Task<Void, Never>?
-  private let appState = AppState.shared
 
   /// Fixed panel size — large enough for expanded content + shadow padding.
   private static let panelSize = CGSize(width: 640, height: 250)
@@ -60,7 +75,12 @@ final class NotchManager {
       defer: false
     )
 
-    let hostingView = NSHostingView(rootView: NotchContentView())
+    let hostingView = NSHostingView(
+      rootView: NotchContentView()
+        .environment(AppState.shared)
+        .environment(self)
+        .environment(AudioVisualizationState.shared)
+    )
     hostingView.frame = NSRect(origin: .zero, size: Self.panelSize)
     panel.contentView = hostingView
 
@@ -101,8 +121,8 @@ final class NotchManager {
   func showOutputResult(_ result: OutputResult) {
     cancelAutoHide()
     withAnimation(.smooth(duration: 0.4)) {
-      appState.outputNotification = result
-      appState.isShowingConfirmation = false
+      outputNotification = result
+      isShowingConfirmation = false
     }
     showExpanded()
     scheduleAutoHide(after: 1.25)
@@ -133,9 +153,9 @@ final class NotchManager {
   func showConfirmation(_ message: String) {
     cancelAutoHide()
     withAnimation(.smooth(duration: 0.4)) {
-      appState.isShowingConfirmation = true
-      appState.confirmationMessage = message
-      appState.outputNotification = nil
+      isShowingConfirmation = true
+      confirmationMessage = message
+      outputNotification = nil
     }
     showExpanded()
     scheduleAutoHide(after: 1.25)
@@ -144,8 +164,8 @@ final class NotchManager {
   func hide() {
     cancelAutoHide()
     withAnimation(.smooth(duration: 0.4)) {
-      appState.outputNotification = nil
-      appState.isShowingConfirmation = false
+      outputNotification = nil
+      isShowingConfirmation = false
     }
     withAnimation(.spring(response: 0.42, dampingFraction: 0.8)) {
       notchState = .hidden
@@ -243,10 +263,9 @@ final class NotchManager {
       try? await Task.sleep(for: .seconds(seconds))
       guard let self, !Task.isCancelled else { return }
       withAnimation(.smooth(duration: 0.4)) {
-        self.appState.outputNotification = nil
-        self.appState.isShowingConfirmation = false
-        self.appState.lastError = nil
-        self.appState.lastErrorRecovery = nil
+        self.outputNotification = nil
+        self.isShowingConfirmation = false
+        AppState.shared.error.clear()
       }
       withAnimation(.spring(response: 0.42, dampingFraction: 0.8)) {
         self.notchState = .hidden

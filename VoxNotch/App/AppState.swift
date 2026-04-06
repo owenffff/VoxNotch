@@ -2,7 +2,8 @@
 //  AppState.swift
 //  VoxNotch
 //
-//  Global application state using @Observable macro
+//  Global application state using @Observable macro.
+//  Sub-states group related fields to reduce view invalidation scope.
 //
 
 import SwiftUI
@@ -15,41 +16,21 @@ final class AppState {
 
   static let shared = AppState()
 
+  // MARK: - Sub-States
+
+  let modelDownload = ModelReadinessState.shared
+  let modelSelection = ModelSelectionState.shared
+  let toneSelection = ToneSelectionState.shared
+  let error = ErrorState.shared
+
   // MARK: - Dictation Phase
 
   /// Single source of truth for the dictation flow phase.
-  /// Replaces the individual isRecording / isTranscribing / … booleans.
   var dictationPhase: DictationState = .idle
-
-  // MARK: - Download State
-
-  var isDownloadingModel: Bool = false
-
-  /// Model download progress (0.0 to 1.0)
-  var modelDownloadProgress: Double = 0.0
-
-  /// Whether speech model is ready for transcription
-  var isModelReady: Bool = false
-
-  /// Whether required models need to be downloaded
-  var modelsNeeded: Bool = false
-
-  /// Human-readable message about which models are missing
-  var modelsNeededMessage: String = ""
 
   // MARK: - Current Transcription
 
   var currentTranscription: String = ""
-  var lastError: String?
-  var lastErrorRecovery: String?
-
-  /// URL of the last recorded audio file (for retry)
-  var lastAudioURL: URL?
-
-  /// Whether transcription retry is available
-  var canRetryTranscription: Bool {
-    lastError != nil && lastAudioURL != nil
-  }
 
   // MARK: - LLM Status
 
@@ -77,33 +58,8 @@ final class AppState {
   /// Current recording duration in seconds (updated by timer during recording)
   var recordingDuration: TimeInterval = 0
 
-  // MARK: - Model Selection State
-
-  /// The models shown in the cycling UI (populated on entry; includes custom models)
-  var modelSelectionCandidates: [AnyModel] = []
-
-  /// Current cycle index: 0...(candidates.count-1) = models, candidates.count = "More Models..."
-  var modelSelectionIndex: Int = 0
-
-  // MARK: - Tone Selection State
-
-  /// The tones shown in the cycling UI (populated from pinned tone IDs on entry)
-  var toneSelectionCandidates: [ToneTemplate] = []
-
-  /// Current cycle index: 0...(candidates.count-1) = tones, candidates.count = "More Tones..."
-  var toneSelectionIndex: Int = 0
-
   /// Deep-link target for Settings navigation (SettingsPanel.rawValue)
   var navigateToSettingsPanel: String? = nil
-
-  // MARK: - Transient Notch States
-
-  /// Set by NotchManager to show the output notification, cleared on hide.
-  var outputNotification: OutputResult? = nil
-
-  /// Brief confirmation shown after model/tone selection before auto-hide
-  var isShowingConfirmation = false
-  var confirmationMessage: String = ""
 
   // MARK: - Status
 
@@ -119,8 +75,8 @@ final class AppState {
   }
 
   var status: AppStatus {
-    if lastError != nil { return .error }
-    if isDownloadingModel { return .downloading }
+    if error.lastError != nil { return .error }
+    if modelDownload.isDownloadingModel { return .downloading }
     switch dictationPhase {
     case .processingLLM:  return .processing
     case .warmingUp:      return .warmingUp
@@ -128,7 +84,7 @@ final class AppState {
     case .recording:      return .recording
     default:              break
     }
-    if modelsNeeded { return .modelsNeeded }
+    if modelDownload.modelsNeeded { return .modelsNeeded }
     return .ready
   }
 
@@ -139,8 +95,7 @@ final class AppState {
   // MARK: - Methods
 
   func clearError() {
-    lastError = nil
-    lastErrorRecovery = nil
+    error.clear()
   }
 
   /// Set LLM warning (non-blocking, transcription still succeeded)
@@ -157,26 +112,18 @@ final class AppState {
 
   func reset() {
     dictationPhase = .idle
-    isDownloadingModel = false
-    modelDownloadProgress = 0.0
-    isModelReady = false
-    modelsNeeded = false
-    modelsNeededMessage = ""
+    modelDownload.reset()
     currentTranscription = ""
-    lastError = nil
-    lastErrorRecovery = nil
-    lastAudioURL = nil
+    error.reset()
     llmWarning = nil
     llmFailedWithRetry = false
     lastOutputResult = nil
     silenceWarningActive = false
     recordingDuration = 0
     noMicrophoneDetected = false
-    modelSelectionCandidates = []
-    modelSelectionIndex = 0
-    toneSelectionCandidates = []
-    toneSelectionIndex = 0
+    modelSelection.reset()
+    toneSelection.reset()
     navigateToSettingsPanel = nil
-    outputNotification = nil
   }
+
 }

@@ -12,7 +12,7 @@ import SwiftUI
 
 struct NotchContentView: View {
 
-  private let notchManager = NotchManager.shared
+  @Environment(NotchManager.self) private var notchManager
 
   // MARK: - Expanded Size
 

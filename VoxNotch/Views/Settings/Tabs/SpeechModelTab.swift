@@ -220,8 +220,8 @@ struct SpeechModelTab: View {
       displayName = "Unknown"
     }
 
-    appState.isModelReady = isReady
-    appState.modelsNeeded = !isReady
-    appState.modelsNeededMessage = isReady ? "" : "Not downloaded: \(displayName)"
+    appState.modelDownload.isModelReady = isReady
+    appState.modelDownload.modelsNeeded = !isReady
+    appState.modelDownload.modelsNeededMessage = isReady ? "" : "Not downloaded: \(displayName)"
   }
 }

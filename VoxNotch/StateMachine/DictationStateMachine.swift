@@ -68,11 +68,14 @@ final class DictationStateMachine {
     private let transcriptionEngine: TranscriptionEngine
     private let llmProcessor: LLMProcessing
     private let textOutputManager: TextOutputting
+    private let settings: SettingsManager
+    private let databaseManager: DatabaseManager
+    private let clock: AppClock
 
     // MARK: - Timers
 
-    private var watchdogTimer: Timer?
-    private var durationTimer: Timer?
+    private var watchdogTimer: ClockTimer?
+    private var durationTimer: ClockTimer?
 
     // MARK: - Callbacks
 
@@ -100,12 +103,18 @@ final class DictationStateMachine {
         audioManager: AudioRecording = AudioCaptureManager.shared,
         transcriptionEngine: TranscriptionEngine = TranscriptionService.shared,
         llmProcessor: LLMProcessing = LLMService.shared,
-        textOutputManager: TextOutputting = TextOutputManager.shared
+        textOutputManager: TextOutputting = TextOutputManager.shared,
+        settings: SettingsManager = .shared,
+        databaseManager: DatabaseManager = .shared,
+        clock: AppClock? = nil
     ) {
         self.audioManager = audioManager
         self.transcriptionEngine = transcriptionEngine
         self.llmProcessor = llmProcessor
         self.textOutputManager = textOutputManager
+        self.settings = settings
+        self.databaseManager = databaseManager
+        self.clock = clock ?? SystemClock()
     }
 
     // MARK: - State Transitions
@@ -231,7 +240,7 @@ final class DictationStateMachine {
     /// Begin audio capture. Called by controller after pre-flight checks pass.
     func beginRecording() throws {
         transition(to: .recording)
-        recordingStartTime = Date()
+        recordingStartTime = clock.now()
         startDurationTimer()
 
         audioManager.accumulateBuffers = true
@@ -246,7 +255,7 @@ final class DictationStateMachine {
         guard case .recording = state else { return }
 
         // Check minimum duration
-        let duration = recordingStartTime.map { Date().timeIntervalSince($0) } ?? 0
+        let duration = recordingStartTime.map { clock.now().timeIntervalSince($0) } ?? 0
         if duration < minimumRecordingDuration {
             cancelPipeline()
             onPipelineCancelled?()
@@ -294,8 +303,8 @@ final class DictationStateMachine {
                 // Post-process text
                 let text: String = {
                     let raw = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let filtered = SettingsManager.shared.removeFillerWords ? FillerWordFilter.clean(raw) : raw
-                    return SettingsManager.shared.applyITN ? NemoTextProcessing.normalizeSentence(filtered) : filtered
+                    let filtered = settings.removeFillerWords ? FillerWordFilter.clean(raw) : raw
+                    return settings.applyITN ? NemoTextProcessing.normalizeSentence(filtered) : filtered
                 }()
 
                 // Empty rejection
@@ -434,10 +443,10 @@ final class DictationStateMachine {
         transcriptionResult: TranscriptionResult,
         savedFrontmostApp: NSRunningApplication?
     ) {
-        guard SettingsManager.shared.historyEnabled else { return }
+        guard settings.historyEnabled else { return }
 
         var audioPath: String? = nil
-        if SettingsManager.shared.saveAudioRecordings {
+        if settings.saveAudioRecordings {
             let audioDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
                 .appendingPathComponent("VoxNotch/audio", isDirectory: true)
             do {
@@ -450,7 +459,7 @@ final class DictationStateMachine {
             }
         }
 
-        let toneID = SettingsManager.shared.activeToneID
+        let toneID = settings.activeToneID
         let toneName = ToneRegistry.shared.tone(forID: toneID)?.displayName ?? toneID
         let hasFocusedInput = textOutputManager.hasFocusedTextInput(for: savedFrontmostApp)
         let metadataDict: [String: String] = [
@@ -470,7 +479,7 @@ final class DictationStateMachine {
         var record = TranscriptionRecord(
             rawText: rawText,
             processedText: processedText,
-            model: SettingsManager.shared.speechModel,
+            model: settings.speechModel,
             duration: captureResult.duration,
             confidence: transcriptionResult.confidence.map(Double.init),
             audioPath: audioPath,
@@ -478,7 +487,7 @@ final class DictationStateMachine {
         )
         Task {
             do {
-                _ = try await DatabaseManager.shared.write { db in
+                _ = try await databaseManager.write { db in
                     try record.insert(db)
                 }
             } catch {
@@ -499,7 +508,7 @@ final class DictationStateMachine {
 
     /// Cancel any active pipeline. Invalidates session, stops audio, transitions to idle.
     func cancelPipeline() {
-        lastCancelTime = Date()
+        lastCancelTime = clock.now()
         invalidateSession()
         audioManager.cancelRecording()
         transition(to: .idle)
@@ -515,11 +524,9 @@ final class DictationStateMachine {
     /// Start the duration timer.
     func startDurationTimer() {
         stopDurationTimer()
-        durationTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                guard let self, let start = self.recordingStartTime else { return }
-                self.onRecordingDurationTick?(Date().timeIntervalSince(start))
-            }
+        durationTimer = clock.scheduleTimer(interval: 1.0, repeats: true) { [weak self] in
+            guard let self, let start = self.recordingStartTime else { return }
+            self.onRecordingDurationTick?(self.clock.now().timeIntervalSince(start))
         }
     }
 
@@ -532,10 +539,8 @@ final class DictationStateMachine {
     // MARK: - Watchdog
 
     private func startWatchdog() {
-        watchdogTimer = Timer.scheduledTimer(withTimeInterval: 180.0, repeats: false) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.onWatchdogFired?()
-            }
+        watchdogTimer = clock.scheduleTimer(interval: 180.0, repeats: false) { [weak self] in
+            self?.onWatchdogFired?()
         }
     }
 

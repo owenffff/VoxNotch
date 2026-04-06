@@ -527,10 +527,10 @@
 		};
 		5A9233622F250A0000DC619E /* XCRemoteSwiftPackageReference "AnyLanguageModel" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/mattt/AnyLanguageModel";
+			repositoryURL = "https://github.com/huggingface/AnyLanguageModel";
 			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.5.0;
+				kind = exactVersion;
+				version = 0.7.1;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */

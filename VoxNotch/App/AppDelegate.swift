@@ -255,14 +255,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let modelManager = FluidAudioModelManager.shared
             let isReady = modelManager.quickDictationModelsReady()
             await MainActor.run {
-                appState.isModelReady = isReady
-                appState.isDownloadingModel = false
+                appState.modelDownload.isModelReady = isReady
+                appState.modelDownload.isDownloadingModel = false
                 if !isReady {
-                    appState.modelsNeeded = true
+                    appState.modelDownload.modelsNeeded = true
                     let speechModelID = SettingsManager.shared.speechModel
                     let (builtin, custom) = SpeechModel.resolve(speechModelID)
                     let name = builtin?.displayName ?? custom?.displayName ?? speechModelID
-                    appState.modelsNeededMessage = "Not downloaded: \(name)"
+                    appState.modelDownload.modelsNeededMessage = "Not downloaded: \(name)"
                 }
             }
         }
