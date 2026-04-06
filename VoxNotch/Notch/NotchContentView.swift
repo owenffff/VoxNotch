@@ -97,51 +97,6 @@ struct NotchContentView: View {
         bottomCornerRadius: bottomCornerRadius
       )
     )
-    .mask {
-      if notchManager.notchState == .expanded {
-        VStack(spacing: 0) {
-          // Top: fully opaque (blends with physical notch).
-          Color.white
-            .frame(height: notchManager.physicalNotchSize.height)
-          // Below: translucent edges, opaque center.
-          ZStack {
-            Color.white.opacity(0.75)
-            Color.white
-              .padding(8)
-              .blur(radius: 10)
-          }
-        }
-      } else {
-        Color.white
-      }
-    }
-    .overlay {
-      // Glassmorphism border glow on left, right, and bottom edges only.
-      if notchManager.notchState == .expanded {
-        NotchShape(
-          topCornerRadius: topCornerRadius,
-          bottomCornerRadius: bottomCornerRadius
-        )
-        .stroke(Color.white.opacity(0.15), lineWidth: 1.5)
-        .blur(radius: 1)
-        .clipShape(
-          NotchShape(
-            topCornerRadius: topCornerRadius,
-            bottomCornerRadius: bottomCornerRadius
-          )
-        )
-        .mask {
-          VStack(spacing: 0) {
-            // Hide glow in physical notch area.
-            Color.clear
-              .frame(height: notchManager.physicalNotchSize.height)
-            // Show glow on sides and bottom.
-            Color.white
-          }
-        }
-        .transition(.opacity)
-      }
-    }
     .shadow(
       color: notchManager.notchState == .expanded
         ? .black.opacity(0.5) : .clear,
