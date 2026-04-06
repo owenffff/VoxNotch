@@ -84,6 +84,8 @@ final class NotchViewModel {
     var errorRecovery: String? { appState.error.lastErrorRecovery }
     var canRetry: Bool { appState.error.canRetryTranscription }
     var confirmationMessage: String { notchManager.confirmationMessage }
+    var llmWarning: String? { appState.error.llmWarning }
+    var hasLLMWarning: Bool { appState.error.llmWarning != nil }
 
     // MARK: - Model Selection
 
@@ -122,9 +124,12 @@ final class NotchViewModel {
         case .downloading:    return "\(Int(downloadProgress * 100))%"
         case .modelsNeeded:   return modelsNeededMessage
         case .error:          return errorMessage ?? "Error"
-        case .outputInserted:         return "Text inserted"
-        case .outputClipboard:        return "Copied — ⌘V to paste"
-        case .outputClipboardAborted: return "App switched — ⌘V to paste"
+        case .outputInserted:
+            return hasLLMWarning ? "Inserted (no tone)" : "Text inserted"
+        case .outputClipboard:
+            return hasLLMWarning ? "Copied (no tone)" : "Copied — ⌘V to paste"
+        case .outputClipboardAborted:
+            return hasLLMWarning ? "Clipboard (no tone)" : "App switched — ⌘V to paste"
         case .confirmation:   return confirmationMessage
         case .modelSelecting: return modelSelectionName ?? "More Models..."
         case .toneSelecting:  return toneSelectionName ?? "More Tones..."

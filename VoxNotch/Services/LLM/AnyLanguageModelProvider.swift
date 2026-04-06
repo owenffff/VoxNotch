@@ -40,6 +40,9 @@ final class AnyLanguageModelProvider: LLMProvider, @unchecked Sendable {
       let userMessage = PromptTemplate.userMessage(for: text)
       let response = try await session.respond(to: userMessage)
       let content = sanitizeResponse(response.content)
+      guard !content.isEmpty else {
+        throw LLMError.invalidResponse
+      }
       return content
     } catch {
       logger.error("AnyLanguageModel error: \(error.localizedDescription)")

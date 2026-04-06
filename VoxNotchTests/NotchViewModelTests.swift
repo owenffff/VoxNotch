@@ -116,4 +116,28 @@ final class NotchViewModelTests: XCTestCase {
         appState.recordingDuration = 65
         XCTAssertEqual(vm.statusText, "1:05")
     }
+
+    // MARK: - LLM Warning
+
+    func testHasLLMWarningFalseByDefault() {
+        XCTAssertFalse(vm.hasLLMWarning)
+        XCTAssertNil(vm.llmWarning)
+    }
+
+    func testHasLLMWarningTrueWhenSet() {
+        appState.error.llmWarning = "Ollama unreachable"
+        XCTAssertTrue(vm.hasLLMWarning)
+        XCTAssertEqual(vm.llmWarning, "Ollama unreachable")
+    }
+
+    func testOutputStatusTextWithLLMWarning() {
+        appState.error.llmWarning = "timeout"
+        notchManager.outputNotification = .inserted
+        XCTAssertEqual(vm.statusText, "Inserted (no tone)")
+    }
+
+    func testOutputStatusTextWithoutLLMWarning() {
+        notchManager.outputNotification = .inserted
+        XCTAssertEqual(vm.statusText, "Text inserted")
+    }
 }

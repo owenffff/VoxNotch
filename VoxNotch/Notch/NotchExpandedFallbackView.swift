@@ -53,11 +53,14 @@ struct NotchExpandedFallbackView: View {
         subtitle: vm.canRetry ? "Press hotkey to retry" : vm.errorRecovery
       )
     case .outputInserted:
-      transientRow(icon: "checkmark.circle.fill", color: .notchGreen, title: "Text inserted")
+      transientRow(icon: "checkmark.circle.fill", color: .notchGreen, title: "Text inserted",
+                   subtitle: vm.hasLLMWarning ? "Tone skipped — LLM unavailable" : nil)
     case .outputClipboard:
-      transientRow(icon: "doc.on.clipboard.fill", color: .notchBlue, title: "Copied — ⌘V to paste")
+      transientRow(icon: "doc.on.clipboard.fill", color: .notchBlue, title: "Copied — ⌘V to paste",
+                   subtitle: vm.hasLLMWarning ? "Tone skipped — LLM unavailable" : nil)
     case .outputClipboardAborted:
-      transientRow(icon: "arrow.uturn.left.circle.fill", color: .notchAmber, title: "App switched — ⌘V to paste")
+      transientRow(icon: "arrow.uturn.left.circle.fill", color: .notchAmber, title: "App switched — ⌘V to paste",
+                   subtitle: vm.hasLLMWarning ? "Tone skipped — LLM unavailable" : nil)
     case .confirmation:
       transientRow(icon: "checkmark.circle.fill", color: .notchGreen, title: vm.confirmationMessage)
     case .idle:

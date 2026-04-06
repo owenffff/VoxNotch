@@ -254,6 +254,7 @@ final class QuickDictationController {
 
         // Clear stale transient flags
         errorRouter.clear()
+        appState.error.clearLLMWarning()
         appState.error.lastAudioURL = nil
         appState.modelDownload.modelsNeeded = false
         notchPresenter.clearTransient()

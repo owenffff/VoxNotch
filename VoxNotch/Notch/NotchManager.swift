@@ -268,6 +268,7 @@ final class NotchManager {
         self.outputNotification = nil
         self.isShowingConfirmation = false
         AppState.shared.error.clear()
+        AppState.shared.error.clearLLMWarning()
       }
       withAnimation(.spring(response: 0.42, dampingFraction: 0.8)) {
         self.notchState = .hidden
