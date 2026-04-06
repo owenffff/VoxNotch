@@ -13,6 +13,9 @@ import SwiftUI
 struct NotchContentView: View {
 
   private let notchManager = NotchManager.shared
+  private let appState = AppState.shared
+
+  @State private var recordingBreath = false
 
   // MARK: - Expanded Size
 
@@ -86,6 +89,30 @@ struct NotchContentView: View {
     }
     .frame(width: currentWidth, height: currentHeight)
     .background(.black)
+    .background {
+      VibrancyBackground(material: .sidebar)
+        .mask {
+          LinearGradient(
+            colors: [.clear, .black],
+            startPoint: .top,
+            endPoint: .bottom
+          )
+        }
+    }
+    .overlay {
+      Color(red: 158/255, green: 135/255, blue: 188/255)
+        .opacity(
+          appState.dictationPhase == .recording
+            ? (recordingBreath ? 0.07 : 0.02) : 0
+        )
+        .animation(
+          appState.dictationPhase == .recording
+            ? .easeInOut(duration: 0.85).repeatForever(autoreverses: true)
+            : .easeInOut(duration: 0.4),
+          value: recordingBreath
+        )
+        .animation(.easeInOut(duration: 0.4), value: appState.dictationPhase)
+    }
     .clipShape(
       NotchShape(
         topCornerRadius: topCornerRadius,
@@ -102,6 +129,15 @@ struct NotchContentView: View {
     .allowsHitTesting(notchManager.notchState == .expanded)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     .animation(animation, value: notchManager.notchState)
+    .onChange(of: appState.dictationPhase) { _, phase in
+      if case .recording = phase {
+        withAnimation(.easeInOut(duration: 0.85).repeatForever(autoreverses: true)) {
+          recordingBreath = true
+        }
+      } else {
+        recordingBreath = false
+      }
+    }
   }
 }
 
