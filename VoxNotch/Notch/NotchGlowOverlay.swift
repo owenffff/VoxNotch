@@ -49,11 +49,12 @@ struct NotchGlowOverlay: View {
       value: breathing
     )
     .animation(.easeOut(duration: isActive ? 0.4 : 0.5), value: isActive)
-    .onAppear {
-      if isActive { breathing = true }
-    }
     .onChange(of: isActive) { _, active in
-      breathing = active
+      if active {
+        breathing = true
+      } else {
+        breathing = false
+      }
     }
     .allowsHitTesting(false)
   }
