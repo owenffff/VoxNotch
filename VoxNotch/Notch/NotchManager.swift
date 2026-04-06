@@ -34,11 +34,15 @@ final class NotchManager {
   /// Whether the current display has a physical camera notch.
   var hasPhysicalNotch: Bool = true
 
+  /// Opacity multiplier for the entire notch overlay.
+  /// Animated to 0 before `orderOut` to avoid the visible snap.
+  var panelOpacity: CGFloat = 1.0
+
   // MARK: - Private
 
   private var panel: NotchPanel?
   private var autoHideTask: Task<Void, Never>?
-  private var orderOutTask: Task<Void, Never>?
+  private var fadeOutTask: Task<Void, Never>?
   private let appState = AppState.shared
 
   /// Fixed panel size — large enough for expanded content + shadow padding.
@@ -160,7 +164,7 @@ final class NotchManager {
     withAnimation(.spring(response: 0.45, dampingFraction: 1.0)) {
       notchState = .hidden
     }
-    scheduleOrderOut()
+    scheduleFadeAndOrderOut()
   }
 
   // MARK: - Private
@@ -169,8 +173,9 @@ final class NotchManager {
   /// content transitions are driven by AppState / displayPhase, not
   /// by re-expanding the panel.
   private func showExpanded() {
-    // Cancel any pending orderOut so it can't race with this expand.
-    cancelOrderOut()
+    // Cancel any pending fade/orderOut so it can't race with this expand.
+    cancelFadeOut()
+    panelOpacity = 1.0
     ensurePanelVisible()
 
     guard notchState != .expanded else { return }
@@ -218,21 +223,31 @@ final class NotchManager {
     }
   }
 
-  // MARK: - Order Out (tracked, cancellable)
+  // MARK: - Fade and Order Out (tracked, cancellable)
 
-  /// Schedule the panel to be ordered out after the collapse animation.
-  private func scheduleOrderOut() {
-    cancelOrderOut()
-    orderOutTask = Task { [weak self] in
-      try? await Task.sleep(for: .seconds(0.5))
+  /// Fade the notch overlay to transparent, then order out the panel.
+  /// Timeline: 0.35s wait (spring mostly settled) → 0.2s opacity fade → orderOut.
+  private func scheduleFadeAndOrderOut() {
+    cancelFadeOut()
+    fadeOutTask = Task { [weak self] in
+      // Wait for the spring collapse to mostly settle.
+      try? await Task.sleep(for: .seconds(0.35))
       guard let self, !Task.isCancelled else { return }
+
+      withAnimation(.easeOut(duration: 0.2)) {
+        self.panelOpacity = 0
+      }
+
+      // Wait for the opacity fade to complete, then remove the panel.
+      try? await Task.sleep(for: .seconds(0.25))
+      guard !Task.isCancelled else { return }
       self.panel?.orderOut(nil)
     }
   }
 
-  private func cancelOrderOut() {
-    orderOutTask?.cancel()
-    orderOutTask = nil
+  private func cancelFadeOut() {
+    fadeOutTask?.cancel()
+    fadeOutTask = nil
   }
 
   // MARK: - Auto Hide
@@ -251,7 +266,7 @@ final class NotchManager {
       withAnimation(.spring(response: 0.45, dampingFraction: 1.0)) {
         self.notchState = .hidden
       }
-      self.scheduleOrderOut()
+      self.scheduleFadeAndOrderOut()
     }
   }
 
