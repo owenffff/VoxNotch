@@ -12,6 +12,18 @@ import Foundation
 import GRDB
 import os.log
 
+// MARK: - Output Result
+
+/// Describes how text output was delivered to the user.
+enum OutputResult: Equatable {
+    /// Text was successfully inserted into the focused field.
+    case inserted
+    /// No focused text field was detected — text copied to clipboard only.
+    case clipboard
+    /// App switched mid-output — partial text typed, full text on clipboard.
+    case clipboardAborted
+}
+
 // MARK: - Delegate
 
 /// Notified on every state transition so the controller can sync AppState / UI.
@@ -70,8 +82,8 @@ final class DictationStateMachine {
     /// Fired when the watchdog triggers (stuck recording).
     var onWatchdogFired: (() -> Void)?
 
-    /// Fired after successful text output. Bool = wasClipboard (no focused text field).
-    var onPipelineOutputSuccess: ((_ wasClipboard: Bool) -> Void)?
+    /// Fired after successful text output with the delivery method.
+    var onPipelineOutputSuccess: ((_ result: OutputResult) -> Void)?
 
     /// Fired when the pipeline is cancelled (too short, etc.) so the controller can hide UI.
     var onPipelineCancelled: (() -> Void)?
@@ -373,7 +385,16 @@ final class DictationStateMachine {
     // MARK: - Pipeline: Output Text
 
     private func outputText(_ text: String, savedFrontmostApp: NSRunningApplication?) async {
-        let hasFocusedInput = textOutputManager.hasFocusedTextInput(for: savedFrontmostApp)
+        // Re-verify: if user switched apps during transcription, target the current one.
+        let effectiveApp: NSRunningApplication?
+        if let saved = savedFrontmostApp,
+           saved.processIdentifier == NSWorkspace.shared.frontmostApplication?.processIdentifier {
+            effectiveApp = saved
+        } else {
+            effectiveApp = NSWorkspace.shared.frontmostApplication
+        }
+
+        let hasFocusedInput = textOutputManager.hasFocusedTextInput(for: effectiveApp)
 
         await MainActor.run { transition(to: .outputting) }
 
@@ -382,7 +403,14 @@ final class DictationStateMachine {
                 try await textOutputManager.output(text)
                 textOutputManager.copyToClipboardOnly(text)
                 await MainActor.run {
-                    onPipelineOutputSuccess?(false)
+                    onPipelineOutputSuccess?(.inserted)
+                    transition(to: .idle)
+                }
+            } catch let error as TextOutputManager.TextOutputError where error == .targetAppChanged {
+                // App switched mid-keystroke — fall back to clipboard gracefully.
+                textOutputManager.copyToClipboardOnly(text)
+                await MainActor.run {
+                    onPipelineOutputSuccess?(.clipboardAborted)
                     transition(to: .idle)
                 }
             } catch {
@@ -391,7 +419,7 @@ final class DictationStateMachine {
         } else {
             textOutputManager.copyToClipboardOnly(text)
             await MainActor.run {
-                onPipelineOutputSuccess?(true)
+                onPipelineOutputSuccess?(.clipboard)
                 transition(to: .idle)
             }
         }

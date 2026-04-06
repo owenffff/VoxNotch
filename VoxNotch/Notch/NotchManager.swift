@@ -98,22 +98,10 @@ final class NotchManager {
     showExpanded()
   }
 
-  func showSuccess() {
+  func showOutputResult(_ result: OutputResult) {
     cancelAutoHide()
     withAnimation(.smooth(duration: 0.4)) {
-      appState.isShowingSuccess = true
-      appState.isShowingClipboard = false
-      appState.isShowingConfirmation = false
-    }
-    showExpanded()
-    scheduleAutoHide(after: 1.5)
-  }
-
-  func showClipboard() {
-    cancelAutoHide()
-    withAnimation(.smooth(duration: 0.4)) {
-      appState.isShowingClipboard = true
-      appState.isShowingSuccess = false
+      appState.outputNotification = result
       appState.isShowingConfirmation = false
     }
     showExpanded()
@@ -147,8 +135,7 @@ final class NotchManager {
     withAnimation(.smooth(duration: 0.4)) {
       appState.isShowingConfirmation = true
       appState.confirmationMessage = message
-      appState.isShowingSuccess = false
-      appState.isShowingClipboard = false
+      appState.outputNotification = nil
     }
     showExpanded()
     scheduleAutoHide(after: 1.5)
@@ -157,8 +144,7 @@ final class NotchManager {
   func hide() {
     cancelAutoHide()
     withAnimation(.smooth(duration: 0.4)) {
-      appState.isShowingSuccess = false
-      appState.isShowingClipboard = false
+      appState.outputNotification = nil
       appState.isShowingConfirmation = false
     }
     withAnimation(.spring(response: 0.45, dampingFraction: 1.0)) {
@@ -257,8 +243,7 @@ final class NotchManager {
       try? await Task.sleep(for: .seconds(seconds))
       guard let self, !Task.isCancelled else { return }
       withAnimation(.smooth(duration: 0.4)) {
-        self.appState.isShowingSuccess = false
-        self.appState.isShowingClipboard = false
+        self.appState.outputNotification = nil
         self.appState.isShowingConfirmation = false
         self.appState.lastError = nil
         self.appState.lastErrorRecovery = nil

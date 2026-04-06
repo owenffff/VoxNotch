@@ -26,8 +26,13 @@ struct CompactLeadingView: View {
     if appState.isDownloadingModel { return .downloading }
     if appState.modelsNeeded       { return .modelsNeeded }
     if appState.lastError != nil   { return .error }
-    if appState.isShowingSuccess   { return .success }
-    if appState.isShowingClipboard { return .clipboard }
+    if let output = appState.outputNotification {
+      switch output {
+      case .inserted:        return .success
+      case .clipboard:       return .clipboard
+      case .clipboardAborted: return .clipboardAborted
+      }
+    }
     return .idle
   }
 
@@ -57,10 +62,15 @@ struct CompactLeadingView: View {
       statusIcon("exclamationmark.triangle", color: .yellow)
     } else if appState.lastError != nil {
       statusIcon("xmark.circle.fill", color: .red)
-    } else if appState.isShowingSuccess {
-      statusIcon("checkmark.circle.fill", color: .green)
-    } else if appState.isShowingClipboard {
-      statusIcon("doc.on.clipboard", color: .green)
+    } else if let result = appState.outputNotification {
+      switch result {
+      case .inserted:
+        statusIcon("checkmark.circle.fill", color: .green)
+      case .clipboard:
+        statusIcon("doc.on.clipboard", color: .green)
+      case .clipboardAborted:
+        statusIcon("arrow.uturn.left.circle", color: .yellow)
+      }
     } else {
       statusIcon("waveform", color: .secondary)
     }
@@ -115,6 +125,6 @@ struct CompactLeadingView: View {
 
 private enum CompactPhase: Equatable {
   case idle, recording, processing, downloading
-  case modelsNeeded, error, success, clipboard
+  case modelsNeeded, error, success, clipboard, clipboardAborted
   case modelSelecting, toneSelecting
 }

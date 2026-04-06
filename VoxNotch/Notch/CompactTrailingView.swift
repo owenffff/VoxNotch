@@ -27,8 +27,13 @@ struct CompactTrailingView: View {
     if appState.isDownloadingModel { return .downloading }
     if appState.modelsNeeded       { return .modelsNeeded }
     if appState.lastError != nil   { return .error }
-    if appState.isShowingSuccess   { return .success }
-    if appState.isShowingClipboard { return .clipboard }
+    if let output = appState.outputNotification {
+      switch output {
+      case .inserted:        return .success
+      case .clipboard:       return .clipboard
+      case .clipboardAborted: return .clipboardAborted
+      }
+    }
     return .idle
   }
 
@@ -58,10 +63,15 @@ struct CompactTrailingView: View {
       statusText(appState.modelsNeededMessage)
     } else if let error = appState.lastError {
       statusText(error)
-    } else if appState.isShowingSuccess {
-      statusText("Text inserted")
-    } else if appState.isShowingClipboard {
-      statusText("Copied to clipboard")
+    } else if let result = appState.outputNotification {
+      switch result {
+      case .inserted:
+        statusText("Text inserted")
+      case .clipboard:
+        statusText("Copied — ⌘V to paste")
+      case .clipboardAborted:
+        statusText("App switched — ⌘V to paste")
+      }
     } else {
       statusText("VoxNotch")
     }
@@ -141,6 +151,6 @@ struct CompactTrailingView: View {
 
 private enum CompactPhase: Equatable {
   case idle, recording, warmingUp, transcribing, processingLLM
-  case downloading, modelsNeeded, error, success, clipboard
+  case downloading, modelsNeeded, error, success, clipboard, clipboardAborted
   case modelSelecting, toneSelecting
 }

@@ -61,8 +61,8 @@ final class AppState {
 
   // MARK: - Output Routing
 
-  /// Set to true when dictation output was sent to clipboard (no focused text field detected)
-  var lastOutputWasClipboard: Bool = false
+  /// How text was delivered in the most recent dictation output.
+  var lastOutputResult: OutputResult? = nil
 
   // MARK: - Microphone State
 
@@ -98,11 +98,8 @@ final class AppState {
 
   // MARK: - Transient Notch States
 
-  /// Set by NotchManager when a success animation should be shown, cleared on hide
-  var isShowingSuccess = false
-
-  /// Set by NotchManager when clipboard notification should be shown, cleared on hide
-  var isShowingClipboard = false
+  /// Set by NotchManager to show the output notification, cleared on hide.
+  var outputNotification: OutputResult? = nil
 
   /// Brief confirmation shown after model/tone selection before auto-hide
   var isShowingConfirmation = false
@@ -171,7 +168,7 @@ final class AppState {
     lastAudioURL = nil
     llmWarning = nil
     llmFailedWithRetry = false
-    lastOutputWasClipboard = false
+    lastOutputResult = nil
     silenceWarningActive = false
     recordingDuration = 0
     noMicrophoneDetected = false
@@ -180,7 +177,6 @@ final class AppState {
     toneSelectionCandidates = []
     toneSelectionIndex = 0
     navigateToSettingsPanel = nil
-    isShowingSuccess = false
-    isShowingClipboard = false
+    outputNotification = nil
   }
 }

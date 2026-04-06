@@ -37,13 +37,7 @@ final class AnyLanguageModelProvider: LLMProvider, @unchecked Sendable {
     let session = LanguageModelSession(model: model, instructions: prompt)
 
     do {
-      let userMessage = """
-      <transcription>
-      \(text)
-      </transcription>
-
-      Edit the above transcription per your instructions. Output ONLY the edited text — nothing else.
-      """
+      let userMessage = PromptTemplate.userMessage(for: text)
       let response = try await session.respond(to: userMessage)
       let content = sanitizeResponse(response.content)
       return content
@@ -69,15 +63,7 @@ final class AnyLanguageModelProvider: LLMProvider, @unchecked Sendable {
     // Strip conversational preamble — only if remainder is non-empty.
     // Each prefix pattern is matched case-insensitively at the start of the response.
     // We strip up to and including the first newline after the preamble sentence.
-    let preamblePrefixes = [
-      "sure,", "sure!", "sure.", "sure —", "sure–", "sure-",
-      "of course,", "of course!", "of course.",
-      "certainly,", "certainly!", "certainly.",
-      "absolutely,", "absolutely!", "absolutely.",
-      "here's the", "here is the", "here's your", "here is your",
-      "i've rephrased", "i've rewritten", "i've edited", "i've converted",
-      "i'll help", "i'd be happy to", "i would be happy to",
-    ]
+    let preamblePrefixes = PromptTemplate.preamblePrefixes
 
     let lowered = text.lowercased()
     for prefix in preamblePrefixes {
@@ -102,13 +88,7 @@ final class AnyLanguageModelProvider: LLMProvider, @unchecked Sendable {
     }
 
     // Strip trailing meta-commentary (e.g., "Let me know if you'd like...")
-    let trailingSuffixes = [
-      "\nlet me know if",
-      "\nfeel free to",
-      "\nplease let me know",
-      "\nhope this helps",
-      "\nis there anything",
-    ]
+    let trailingSuffixes = PromptTemplate.trailingSuffixes
     let loweredText = text.lowercased()
     for suffix in trailingSuffixes {
       if let range = loweredText.range(of: suffix) {

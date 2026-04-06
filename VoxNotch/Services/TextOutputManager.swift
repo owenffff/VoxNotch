@@ -14,11 +14,12 @@ final class TextOutputManager {
 
     // MARK: - Types
 
-    enum TextOutputError: LocalizedError {
+    enum TextOutputError: LocalizedError, Equatable {
         case accessibilityNotGranted
         case noActiveApplication
         case keystrokeFailed
         case clipboardFailed
+        case targetAppChanged
 
         var errorDescription: String? {
             switch self {
@@ -30,6 +31,8 @@ final class TextOutputManager {
                 return "Could not type text"
             case .clipboardFailed:
                 return "Could not paste text"
+            case .targetAppChanged:
+                return "Target app changed during output"
             }
         }
 
@@ -39,7 +42,7 @@ final class TextOutputManager {
                 return "Grant access in System Settings → Privacy"
             case .noActiveApplication:
                 return "Click into an app first, then try again"
-            case .keystrokeFailed, .clipboardFailed:
+            case .keystrokeFailed, .clipboardFailed, .targetAppChanged:
                 return "Text was copied to clipboard instead"
             }
         }
@@ -50,6 +53,7 @@ final class TextOutputManager {
     static let shared = TextOutputManager()
 
     private let keystrokeDelay: TimeInterval = 0.01
+    private let keystrokeLengthThreshold: Int = 50
 
     /// Whether to restore clipboard after paste (read from settings)
     var restoreClipboard: Bool {
@@ -87,8 +91,22 @@ final class TextOutputManager {
             throw TextOutputError.accessibilityNotGranted
         }
 
-        // Type each character
-        for char in text {
+        // Long text is faster and safer via clipboard paste.
+        if text.count > keystrokeLengthThreshold {
+            try await outputViaClipboard(text)
+            return
+        }
+
+        // Capture the frontmost PID so we can detect app switches mid-stream.
+        let targetPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+
+        for (index, char) in text.enumerated() {
+            // Every 10 characters, verify the target app is still frontmost.
+            if let pid = targetPID, index > 0, index % 10 == 0,
+               let current = NSWorkspace.shared.frontmostApplication,
+               current.processIdentifier != pid {
+                throw TextOutputError.targetAppChanged
+            }
             try await typeCharacter(char)
             try await Task.sleep(nanoseconds: UInt64(keystrokeDelay * 1_000_000_000))
         }
@@ -185,9 +203,11 @@ final class TextOutputManager {
             return false
         }
 
-        // For certain apps like Chrome, Arc, or Electron apps, the accessibility tree
-        // might not expose the exact text field role, or it might be an AXWebArea.
-        // We whitelist these apps to always attempt text output.
+        let axApp = AXUIElementCreateApplication(targetApp.processIdentifier)
+
+        // For Electron / browser apps the AX tree can be slow or incomplete.
+        // The whitelist provides a generous fallback: if the AX query succeeds
+        // we trust it; if it fails we default to true (preserving old behavior).
         if let bundleID = targetApp.bundleIdentifier {
             let whitelistedPrefixes = [
                 "com.google.Chrome",
@@ -210,36 +230,48 @@ final class TextOutputManager {
             ]
 
             if whitelistedPrefixes.contains(where: { bundleID.hasPrefix($0) }) {
-                return true
+                return isFocusedElementEditable(axApp: axApp) ?? true
             }
         }
 
-        let pid = targetApp.processIdentifier
-        let axApp = AXUIElementCreateApplication(pid)
-        var focusedElement: CFTypeRef?
-        let result = AXUIElementCopyAttributeValue(axApp, kAXFocusedUIElementAttribute as CFString, &focusedElement)
+        // Non-whitelisted apps: conservative — AX failure means false.
+        return isFocusedElementEditable(axApp: axApp) ?? false
+    }
 
-        guard result == .success, let element = focusedElement else {
-            return false
-        }
+    /// Check whether the focused element of an AX application is an editable text field.
+    /// Returns `nil` when the AX query itself fails (no permission, timeout, etc.).
+    private func isFocusedElementEditable(axApp: AXUIElement) -> Bool? {
+        var focusedElement: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(
+            axApp, kAXFocusedUIElementAttribute as CFString, &focusedElement
+        )
+        guard result == .success, let element = focusedElement else { return nil }
 
         let axElement = element as! AXUIElement
         var roleValue: CFTypeRef?
-        let roleResult = AXUIElementCopyAttributeValue(axElement, kAXRoleAttribute as CFString, &roleValue)
+        let roleResult = AXUIElementCopyAttributeValue(
+            axElement, kAXRoleAttribute as CFString, &roleValue
+        )
+        guard roleResult == .success, let role = roleValue as? String else { return nil }
 
-        guard roleResult == .success, let role = roleValue as? String else {
-            return false
+        // Standard native text input roles — always editable.
+        let definitelyEditableRoles: Set<String> = [
+            "AXTextField", "AXTextArea", "AXComboBox", "AXSearchField"
+        ]
+        if definitelyEditableRoles.contains(role) { return true }
+
+        // Web / document roles need an extra check: AXSelectedTextRange is
+        // present on focused inputs and contenteditable areas but absent on
+        // inert page bodies (e.g. YouTube video view).
+        if role == "AXWebArea" || role == "AXDocument" {
+            var selectedTextRange: CFTypeRef?
+            let rangeResult = AXUIElementCopyAttributeValue(
+                axElement, "AXSelectedTextRange" as CFString, &selectedTextRange
+            )
+            return rangeResult == .success && selectedTextRange != nil
         }
 
-        let textRoles: Set<String> = [
-            "AXTextField",
-            "AXTextArea",
-            "AXComboBox",
-            "AXSearchField",
-            "AXWebArea",
-            "AXDocument"
-        ]
-        return textRoles.contains(role)
+        return false
     }
 
     /// Copy text to clipboard without simulating a paste keystroke.

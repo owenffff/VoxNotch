@@ -28,8 +28,13 @@ struct NotchExpandedFallbackView: View {
     if appState.isDownloadingModel    { return .downloading }
     if appState.modelsNeeded          { return .modelsNeeded }
     if appState.lastError != nil      { return .error }
-    if appState.isShowingSuccess      { return .success }
-    if appState.isShowingClipboard    { return .clipboard }
+    if let output = appState.outputNotification {
+      switch output {
+      case .inserted:        return .success
+      case .clipboard:       return .clipboard
+      case .clipboardAborted: return .clipboardAborted
+      }
+    }
     if appState.isShowingConfirmation { return .confirmation }
     return .idle
   }
@@ -73,18 +78,27 @@ struct NotchExpandedFallbackView: View {
         title: shortenError(error),
         subtitle: appState.canRetryTranscription ? "Press hotkey to retry" : appState.lastErrorRecovery
       )
-    } else if appState.isShowingSuccess {
-      transientRow(
-        icon: "checkmark.circle.fill",
-        color: .green,
-        title: "Text inserted"
-      )
-    } else if appState.isShowingClipboard {
-      transientRow(
-        icon: "doc.on.clipboard.fill",
-        color: .green,
-        title: "Copied to clipboard"
-      )
+    } else if let result = appState.outputNotification {
+      switch result {
+      case .inserted:
+        transientRow(
+          icon: "checkmark.circle.fill",
+          color: .green,
+          title: "Text inserted"
+        )
+      case .clipboard:
+        transientRow(
+          icon: "doc.on.clipboard.fill",
+          color: .green,
+          title: "Copied — ⌘V to paste"
+        )
+      case .clipboardAborted:
+        transientRow(
+          icon: "arrow.uturn.left.circle.fill",
+          color: .yellow,
+          title: "App switched — ⌘V to paste"
+        )
+      }
     } else if appState.isShowingConfirmation {
       transientRow(
         icon: "checkmark.circle.fill",
@@ -291,6 +305,7 @@ private enum DisplayPhase: Equatable {
   case error
   case success
   case clipboard
+  case clipboardAborted
   case confirmation
   case modelSelecting
   case toneSelecting

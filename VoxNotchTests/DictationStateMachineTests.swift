@@ -434,10 +434,10 @@ final class DictationPipelineTests: XCTestCase {
         mockTextOutput.hasFocusedTextInputValue = true
 
         var outputSuccessCalled = false
-        var wasClipboard = true
-        sm.onPipelineOutputSuccess = { clipboard in
+        var outputResult: OutputResult?
+        sm.onPipelineOutputSuccess = { result in
             outputSuccessCalled = true
-            wasClipboard = clipboard
+            outputResult = result
         }
 
         sm.stopRecordingAndTranscribe(savedFrontmostApp: nil)
@@ -447,7 +447,7 @@ final class DictationPipelineTests: XCTestCase {
         XCTAssertEqual(mockTranscription.transcribeCallCount, 1)
         XCTAssertEqual(mockTextOutput.outputCallCount, 1)
         XCTAssertTrue(outputSuccessCalled)
-        XCTAssertFalse(wasClipboard)
+        XCTAssertEqual(outputResult, .inserted)
         XCTAssertEqual(sm.state, .idle)
     }
 
@@ -511,13 +511,13 @@ final class DictationPipelineTests: XCTestCase {
 
         mockTextOutput.hasFocusedTextInputValue = false
 
-        var wasClipboard = false
-        sm.onPipelineOutputSuccess = { clipboard in wasClipboard = clipboard }
+        var outputResult: OutputResult?
+        sm.onPipelineOutputSuccess = { result in outputResult = result }
 
         sm.stopRecordingAndTranscribe(savedFrontmostApp: nil)
         try await Task.sleep(for: .milliseconds(300))
 
-        XCTAssertTrue(wasClipboard)
+        XCTAssertEqual(outputResult, .clipboard)
         XCTAssertEqual(mockTextOutput.copyCallCount, 1)
         XCTAssertEqual(mockTextOutput.outputCallCount, 0)
     }

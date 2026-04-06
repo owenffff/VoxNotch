@@ -82,14 +82,10 @@ final class QuickDictationController {
             self?.logger.warning("Watchdog triggered - force resetting stuck recording state")
             self?.cancelCurrentSession()
         }
-        stateMachine.onPipelineOutputSuccess = { [weak self] wasClipboard in
+        stateMachine.onPipelineOutputSuccess = { [weak self] result in
             self?.appState.lastAudioURL = nil
-            self?.appState.lastOutputWasClipboard = wasClipboard
-            if wasClipboard {
-                NotchManager.shared.showClipboard()
-            } else {
-                NotchManager.shared.showSuccess()
-            }
+            self?.appState.lastOutputResult = result
+            NotchManager.shared.showOutputResult(result)
             SoundManager.shared.playSuccessSound()
         }
         stateMachine.onPipelineCancelled = {
@@ -247,8 +243,7 @@ final class QuickDictationController {
         appState.clearError()
         appState.lastAudioURL = nil
         appState.modelsNeeded = false
-        appState.isShowingSuccess = false
-        appState.isShowingClipboard = false
+        appState.outputNotification = nil
         appState.isShowingConfirmation = false
 
         // Cancel if busy
@@ -395,8 +390,7 @@ final class QuickDictationController {
 
     private func confirmToneSelection() {
         appState.modelsNeeded = false
-        appState.isShowingSuccess = false
-        appState.isShowingClipboard = false
+        appState.outputNotification = nil
         appState.isShowingConfirmation = false
 
         let index = appState.toneSelectionIndex
@@ -461,8 +455,7 @@ final class QuickDictationController {
 
     private func confirmModelSelection() {
         appState.modelsNeeded = false
-        appState.isShowingSuccess = false
-        appState.isShowingClipboard = false
+        appState.outputNotification = nil
         appState.isShowingConfirmation = false
 
         let index = appState.modelSelectionIndex
