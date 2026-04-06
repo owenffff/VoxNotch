@@ -147,7 +147,7 @@ final class NotchManager {
       appState.outputNotification = nil
       appState.isShowingConfirmation = false
     }
-    withAnimation(.spring(response: 0.55, dampingFraction: 0.78)) {
+    withAnimation(.spring(response: 0.42, dampingFraction: 0.8)) {
       notchState = .hidden
     }
     scheduleFadeAndOrderOut()
@@ -212,20 +212,20 @@ final class NotchManager {
   // MARK: - Fade and Order Out (tracked, cancellable)
 
   /// Fade the notch overlay to transparent, then order out the panel.
-  /// Timeline: 0.55s wait (spring mostly settled) → 0.3s opacity fade → orderOut.
+  /// Timeline: 0.35s wait (spring mostly settled) → 0.2s opacity fade → orderOut.
   private func scheduleFadeAndOrderOut() {
     cancelFadeOut()
     fadeOutTask = Task { [weak self] in
       // Wait for the spring collapse to mostly settle.
-      try? await Task.sleep(for: .seconds(0.55))
+      try? await Task.sleep(for: .seconds(0.50))
       guard let self, !Task.isCancelled else { return }
 
-      withAnimation(.easeOut(duration: 0.3)) {
+      withAnimation(.easeOut(duration: 0.2)) {
         self.panelOpacity = 0
       }
 
       // Wait for the opacity fade to complete, then remove the panel.
-      try? await Task.sleep(for: .seconds(0.35))
+      try? await Task.sleep(for: .seconds(0.25))
       guard !Task.isCancelled else { return }
       self.panel?.orderOut(nil)
     }
@@ -248,7 +248,7 @@ final class NotchManager {
         self.appState.lastError = nil
         self.appState.lastErrorRecovery = nil
       }
-      withAnimation(.spring(response: 0.55, dampingFraction: 0.78)) {
+      withAnimation(.spring(response: 0.42, dampingFraction: 0.8)) {
         self.notchState = .hidden
       }
       self.scheduleFadeAndOrderOut()

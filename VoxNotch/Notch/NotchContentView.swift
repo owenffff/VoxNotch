@@ -64,12 +64,7 @@ struct NotchContentView: View {
   // MARK: - Animation
 
   private var animation: Animation {
-    switch notchManager.notchState {
-    case .expanded:
-      .spring(response: 0.42, dampingFraction: 0.8, blendDuration: 0)
-    case .hidden:
-      .spring(response: 0.55, dampingFraction: 0.78, blendDuration: 0)
-    }
+    .spring(response: 0.42, dampingFraction: 0.8, blendDuration: 0)
   }
 
   // MARK: - Body
