@@ -13,6 +13,7 @@ import SwiftUI
 struct NotchContentView: View {
 
   private let notchManager = NotchManager.shared
+  private let appState = AppState.shared
 
   // MARK: - Expanded Size
 
@@ -91,6 +92,14 @@ struct NotchContentView: View {
     }
     .frame(width: currentWidth, height: currentHeight)
     .background(.black)
+    .overlay {
+      NotchGlowOverlay(
+        isActive: notchManager.notchState == .expanded
+          && appState.dictationPhase == .recording,
+        topCornerRadius: topCornerRadius,
+        bottomCornerRadius: bottomCornerRadius
+      )
+    }
     .clipShape(
       NotchShape(
         topCornerRadius: topCornerRadius,
