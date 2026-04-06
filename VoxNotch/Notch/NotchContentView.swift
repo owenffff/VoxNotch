@@ -98,38 +98,47 @@ struct NotchContentView: View {
       )
     )
     .mask {
-      ZStack {
-        // Edges: translucent when expanded, fully opaque when hidden.
-        Color.white
-          .opacity(notchManager.notchState == .expanded ? 0.75 : 1.0)
-        // Center: boost to full opacity with soft gradient edge.
-        if notchManager.notchState == .expanded {
+      if notchManager.notchState == .expanded {
+        VStack(spacing: 0) {
+          // Top: fully opaque (blends with physical notch).
           Color.white
-            .padding(8)
-            .blur(radius: 10)
+            .frame(height: notchManager.physicalNotchSize.height)
+          // Below: translucent edges, opaque center.
+          ZStack {
+            Color.white.opacity(0.75)
+            Color.white
+              .padding(8)
+              .blur(radius: 10)
+          }
         }
+      } else {
+        Color.white
       }
     }
     .overlay {
-      // Glassmorphism border: light-catching glow along the notch edge.
+      // Glassmorphism border glow on left, right, and bottom edges only.
       if notchManager.notchState == .expanded {
         NotchShape(
           topCornerRadius: topCornerRadius,
           bottomCornerRadius: bottomCornerRadius
         )
-        .stroke(
-          LinearGradient(
-            stops: [
-              .init(color: .white.opacity(0.3), location: 0.0),
-              .init(color: .white.opacity(0.12), location: 0.4),
-              .init(color: .white.opacity(0.05), location: 1.0),
-            ],
-            startPoint: .top,
-            endPoint: .bottom
-          ),
-          lineWidth: 1.5
-        )
+        .stroke(Color.white.opacity(0.15), lineWidth: 1.5)
         .blur(radius: 1)
+        .clipShape(
+          NotchShape(
+            topCornerRadius: topCornerRadius,
+            bottomCornerRadius: bottomCornerRadius
+          )
+        )
+        .mask {
+          VStack(spacing: 0) {
+            // Hide glow in physical notch area.
+            Color.clear
+              .frame(height: notchManager.physicalNotchSize.height)
+            // Show glow on sides and bottom.
+            Color.white
+          }
+        }
         .transition(.opacity)
       }
     }
