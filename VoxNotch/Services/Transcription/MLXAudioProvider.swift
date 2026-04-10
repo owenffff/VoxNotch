@@ -30,6 +30,9 @@ final class MLXAudioProvider: TranscriptionProvider, @unchecked Sendable {
   /// Lock for thread safety
   private let lock = NSLock()
 
+  /// Dedicated queue for inference — keeps the cooperative thread pool free for UI work.
+  private static let inferenceQueue = DispatchQueue(label: "com.voxnotch.mlx-inference", qos: .userInitiated)
+
   /// Whether the model is currently loaded
   private var isModelLoaded = false
 
@@ -53,26 +56,37 @@ final class MLXAudioProvider: TranscriptionProvider, @unchecked Sendable {
     /// Ensure model is loaded
     try await ensureModelLoaded()
 
-    guard let model = model else {
+    guard model != nil else {
       throw TranscriptionError.modelNotLoaded
     }
 
-    /// Load and convert audio to MLXArray at 16kHz mono
-    let audioArray = try loadAudioAsMLXArray(from: audioURL)
-
-    /// Calculate audio duration (samples / sample rate)
-    let audioDuration = Double(audioArray.dim(0)) / 16000.0
-
-    /// Generate transcription using MLX Audio
-    let output = model.generate(audio: audioArray)
+    /// Run audio loading and model inference on a dedicated GCD queue so the
+    /// synchronous `model.generate()` call doesn't block Swift's cooperative
+    /// thread pool, which would starve MainActor tasks and freeze the UI.
+    let (outputText, audioDuration) = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(String, Double), Error>) in
+      Self.inferenceQueue.async { [self] in
+        guard let model = self.lock.withLock({ self.model }) else {
+          continuation.resume(throwing: TranscriptionError.modelNotLoaded)
+          return
+        }
+        do {
+          let audioArray = try self.loadAudioAsMLXArray(from: audioURL)
+          let audioDuration = Double(audioArray.dim(0)) / 16000.0
+          let output = model.generate(audio: audioArray)
+          continuation.resume(returning: (output.text, audioDuration))
+        } catch {
+          continuation.resume(throwing: error)
+        }
+      }
+    }
 
     let processingTime = Date().timeIntervalSince(startTime)
 
-    guard !output.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+    guard !outputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
       throw TranscriptionError.noSpeechDetected
     }
 
-    let cleanedText = output.text.trimmingCharacters(in: .whitespacesAndNewlines)
+    let cleanedText = outputText.trimmingCharacters(in: .whitespacesAndNewlines)
 
     return TranscriptionResult(
       text: cleanedText,
