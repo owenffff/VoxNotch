@@ -17,7 +17,7 @@ struct NotchExpandedFallbackView: View {
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .padding(.horizontal, 14)
       .padding(.vertical, 2)
-      .frame(width: 280)
+      .frame(width: 230)
       .clipped()
       .animation(.smooth(duration: 0.4), value: vm.displayPhase)
   }

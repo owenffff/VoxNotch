@@ -32,37 +32,32 @@ private struct RingBuffer {
 struct ScrollingWaveformView: View {
   let level: Float
 
-  @State private var samples = RingBuffer(capacity: 80)
+  private static let bufferCapacity = 120
+
+  @State private var samples = RingBuffer(capacity: ScrollingWaveformView.bufferCapacity)
   @State private var envelope: Float = 0.0
   @State private var prevEnv: Float = 0.0
   @State private var boostExcess: CGFloat = 0.0
 
-  private let barWidth: CGFloat = 3.5
-  private let barGap: CGFloat = 1.5
+  private let barWidth: CGFloat = 2.5
+  private let barGap: CGFloat = 1.0
 
   var body: some View {
     Canvas { ctx, size in
       let stride = barWidth + barGap
-      let visible = min(80, Int(size.width / stride))
-      let offset = 80 - visible
+      let visible = min(Self.bufferCapacity, Int(size.width / stride))
+      let offset = Self.bufferCapacity - visible
       let minH = max(1.5, size.height * 0.04)
       let cy = size.height / 2
-      let fadeRatio: CGFloat = 0.2
 
       for i in 0..<visible {
         let sample = samples[offset + i]
         let x = CGFloat(i) * stride
         let progress = CGFloat(i) / CGFloat(max(1, visible - 1))
 
-        let raw: CGFloat
-        if progress < fadeRatio {
-          raw = progress / fadeRatio
-        } else if progress > 1 - fadeRatio {
-          raw = (1 - progress) / fadeRatio
-        } else {
-          raw = 1
-        }
-        let t = raw * raw * (3 - 2 * raw)
+        // Smooth center-peaked opacity: full at center, gently fading to edges.
+        let centerness = 1.0 - abs(progress - 0.5) * 2.0
+        let t = 0.35 + 0.65 * centerness * centerness * (3 - 2 * centerness)
 
         let boost: CGFloat = (i == visible - 1) ? (1.0 + boostExcess) : 1.0
         let rawH = CGFloat(pow(sample, 0.5)) * size.height * boost
@@ -70,7 +65,7 @@ struct ScrollingWaveformView: View {
         let rect = CGRect(x: x, y: cy - h / 2, width: barWidth, height: h)
         ctx.fill(
           Path(roundedRect: rect, cornerSize: CGSize(width: barWidth / 2, height: barWidth / 2)),
-          with: .color(.primary.opacity(0.75 * t))
+          with: .color(.primary.opacity(0.8 * t))
         )
       }
     }

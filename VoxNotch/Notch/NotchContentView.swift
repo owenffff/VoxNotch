@@ -17,7 +17,7 @@ struct NotchContentView: View {
   // MARK: - Expanded Size
 
   /// Width of the expanded notch panel.
-  private let expandedWidth: CGFloat = 320
+  private let expandedWidth: CGFloat = 270
 
   /// Height of the visible content area below the physical notch.
   private let expandedContentHeight: CGFloat = 34
