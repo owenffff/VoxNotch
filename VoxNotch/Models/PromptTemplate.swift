@@ -140,14 +140,35 @@ enum PromptTemplate: String, CaseIterable, Identifiable {
   // MARK: - Shared Prompt Components
 
   /// Wraps transcription text into the user message sent to the LLM.
-  static func userMessage(for text: String) -> String {
-    """
+  /// When a non-English language is provided, adds a preservation hint.
+  static func userMessage(for text: String, language: String? = nil) -> String {
+    let languageHint: String
+    if let lang = language, lang != "auto", lang != "en" {
+      let name = languageDisplayName(lang)
+      languageHint = "\n\nIMPORTANT: This text is in \(name). You MUST respond in \(name). Do NOT translate to English.\n"
+    } else {
+      languageHint = ""
+    }
+    return """
     <transcription>
     \(text)
     </transcription>
-
+    \(languageHint)
     Edit the above transcription per your instructions. Output ONLY the edited text — nothing else.
     """
+  }
+
+  /// Returns a language-preservation rule to prepend to the system prompt,
+  /// or nil when the language is English or unknown.
+  static func languageRule(for language: String?) -> String? {
+    guard let lang = language, lang != "auto", lang != "en" else { return nil }
+    let name = languageDisplayName(lang)
+    return "LANGUAGE RULE: The transcription is in \(name). Your entire output MUST be in \(name). Do NOT translate to English. Apply the editing instructions below in \(name)."
+  }
+
+  /// Converts an ISO 639 language code to a localized display name.
+  private static func languageDisplayName(_ code: String) -> String {
+    Locale.current.localizedString(forLanguageCode: code) ?? code
   }
 
   /// Quick-insert snippets shown in the prompt editor's helpers menu.

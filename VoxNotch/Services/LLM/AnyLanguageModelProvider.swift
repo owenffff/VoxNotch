@@ -33,11 +33,15 @@ final class AnyLanguageModelProvider: LLMProvider, @unchecked Sendable {
 
   // MARK: - LLMProvider
 
-  func process(text: String, prompt: String) async throws -> String {
-    let session = LanguageModelSession(model: model, instructions: prompt)
+  func process(text: String, prompt: String, language: String? = nil) async throws -> String {
+    var systemPrompt = prompt
+    if let rule = PromptTemplate.languageRule(for: language) {
+      systemPrompt = rule + "\n\n" + prompt
+    }
+    let session = LanguageModelSession(model: model, instructions: systemPrompt)
 
     do {
-      let userMessage = PromptTemplate.userMessage(for: text)
+      let userMessage = PromptTemplate.userMessage(for: text, language: language)
       let response = try await session.respond(to: userMessage)
       let content = sanitizeResponse(response.content)
       guard !content.isEmpty else {

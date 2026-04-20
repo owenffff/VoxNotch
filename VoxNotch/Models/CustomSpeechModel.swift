@@ -97,7 +97,13 @@ final class CustomModelRegistry: @unchecked Sendable {
     guard let data = UserDefaults.standard.data(forKey: defaultsKey) else { return }
     do {
       let decoded = try JSONDecoder().decode([CustomSpeechModel].self, from: data)
-      lock.withLock { models = decoded }
+      // Drop Parakeet repos — they were added via the old HF browser path but
+      // aren't MLX-compatible. Parakeet is handled by the built-in FluidAudio engine.
+      let filtered = decoded.filter { !$0.hfRepoID.lowercased().contains("parakeet") }
+      lock.withLock { models = filtered }
+      if filtered.count != decoded.count {
+        save()
+      }
     } catch {
       logger.error("Failed to decode custom speech models from UserDefaults: \(error)")
     }

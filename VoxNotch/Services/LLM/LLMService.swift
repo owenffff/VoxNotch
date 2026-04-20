@@ -109,15 +109,15 @@ final class LLMService {
   /// Process text through the configured LLM provider
   /// - Parameter text: The transcribed text to process
   /// - Returns: The processed text, or original text if processing fails/disabled
-  func process(text: String) async -> String {
-    let result = await processWithResult(text: text)
+  func process(text: String, language: String? = nil) async -> String {
+    let result = await processWithResult(text: text, language: language)
     return result.text
   }
 
   /// Process text with detailed result information
   /// - Parameter text: The transcribed text to process
   /// - Returns: Processing result with success/failure info
-  func processWithResult(text: String) async -> LLMProcessingResult {
+  func processWithResult(text: String, language: String? = nil) async -> LLMProcessingResult {
     guard isEnabled else {
       logger.debug("LLM processing skipped: not enabled")
       return .skipped(originalText: text)
@@ -132,7 +132,7 @@ final class LLMService {
 
       /// Wrap in timeout task to prevent hanging
       let processedText = try await withTimeout(seconds: defaultTimeout) {
-        try await provider.process(text: text, prompt: self.settings.effectivePrompt)
+        try await provider.process(text: text, prompt: self.settings.effectivePrompt, language: language)
       }
 
       logger.info("LLM processing succeeded")

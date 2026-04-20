@@ -264,7 +264,7 @@ struct OnboardingView: View {
 
       // Model picker
       VStack(spacing: 10) {
-        ForEach([SpeechModel.parakeetV2, .parakeetV3], id: \.self) { model in
+        ForEach([SpeechModel.parakeetV2, .glmAsrNano], id: \.self) { model in
           modelCard(model)
         }
       }
@@ -812,14 +812,11 @@ struct OnboardingView: View {
         case .fluidAudio:
           guard let version = selectedModel.fluidAudioVersion else { return }
           let manager = FluidAudioModelManager.shared
-
-          // Poll download progress from the model manager
           let progressTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { _ in
             DispatchQueue.main.async {
               downloadProgress = manager.downloadProgress
             }
           }
-
           try await manager.downloadBatchModel(version: version)
           progressTimer.invalidate()
 

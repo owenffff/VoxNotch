@@ -65,6 +65,8 @@ struct HFModelInfo: Identifiable, Decodable {
     let lower = id.lowercased()
     if lower.contains("glm") { return .glm }
     if lower.contains("qwen3") { return .qwen3 }
+    if lower.contains("voxtral") { return .voxtral }
+    if lower.contains("parakeet") { return .parakeet }
     return .unknown
   }
 }
@@ -75,16 +77,20 @@ enum HFModelFamily: String, CaseIterable, Identifiable {
   case all = "All"
   case glm = "GLM-ASR"
   case qwen3 = "Qwen3-ASR"
+  case voxtral = "Voxtral"
+  case parakeet = "Parakeet"
   case unknown = "Other"
 
   var id: String { rawValue }
 
   var badgeColor: String {
     switch self {
-    case .all:     "gray"
-    case .glm:     "green"
-    case .qwen3:   "blue"
-    case .unknown: "gray"
+    case .all:      "gray"
+    case .glm:      "green"
+    case .qwen3:    "blue"
+    case .voxtral:  "purple"
+    case .parakeet: "orange"
+    case .unknown:  "gray"
     }
   }
 }
@@ -118,9 +124,13 @@ actor HuggingFaceHubService {
       return all
     }
 
-    // Dedupe by id, preserving first occurrence
+    // Dedupe by id, preserving first occurrence. Exclude Parakeet repos —
+    // they aren't MLX-compatible; Parakeet is available as a built-in model.
     var seen = Set<String>()
-    return results.filter { seen.insert($0.id).inserted }
+    return results.filter { model in
+      guard model.family != .parakeet else { return false }
+      return seen.insert(model.id).inserted
+    }
   }
 
   // MARK: - Local Discovery
@@ -185,10 +195,12 @@ actor HuggingFaceHubService {
       return []
     }
 
-    // Default: two parallel queries for known-compatible families
+    // Default: parallel queries for MLX-compatible families. Parakeet is
+    // excluded — it's handled by the built-in FluidAudio engine.
     let queries: [String] = [
       "\(base)?search=GLM-ASR&library=mlx&pipeline_tag=automatic-speech-recognition&full=true&limit=30",
       "\(base)?search=Qwen3-ASR&library=mlx&full=true&limit=30",
+      "\(base)?search=Voxtral&library=mlx&pipeline_tag=automatic-speech-recognition&full=true&limit=30",
     ]
     return queries.compactMap { URL(string: $0) }
   }

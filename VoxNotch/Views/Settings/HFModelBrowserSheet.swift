@@ -66,7 +66,7 @@ struct HFModelBrowserSheet: View {
       // Family filter chips
       ScrollView(.horizontal, showsIndicators: false) {
         HStack(spacing: 8) {
-          ForEach([HFModelFamily.all, .glm, .qwen3, .unknown]) { family in
+          ForEach([HFModelFamily.all, .glm, .qwen3, .voxtral]) { family in
             FamilyChip(family: family, isSelected: selectedFamily == family) {
               selectedFamily = family
             }
@@ -113,6 +113,7 @@ struct HFModelBrowserSheet: View {
               .controlSize(.small)
             Spacer()
           }
+          .frame(maxWidth: .infinity)
           .padding()
         } else {
           List(filteredModels) { model in
@@ -218,17 +219,21 @@ private struct FamilyChip: View {
 
   private var chipBackground: Color {
     switch family {
-    case .glm:   .green.opacity(0.2)
-    case .qwen3: .blue.opacity(0.2)
-    default:     .accentColor.opacity(0.15)
+    case .glm:      .green.opacity(0.2)
+    case .qwen3:    .blue.opacity(0.2)
+    case .voxtral:  .purple.opacity(0.2)
+    case .parakeet: .orange.opacity(0.2)
+    default:        .accentColor.opacity(0.15)
     }
   }
 
   private var chipForeground: Color {
     switch family {
-    case .glm:   .green
-    case .qwen3: .blue
-    default:     .accentColor
+    case .glm:      .green
+    case .qwen3:    .blue
+    case .voxtral:  .purple
+    case .parakeet: .orange
+    default:        .accentColor
     }
   }
 }
@@ -324,9 +329,11 @@ private struct HFModelRow: View {
 
   private var familyColor: Color {
     switch model.family {
-    case .glm:   .green
-    case .qwen3: .blue
-    default:     .gray
+    case .glm:      .green
+    case .qwen3:    .blue
+    case .voxtral:  .purple
+    case .parakeet: .orange
+    default:        .gray
     }
   }
 

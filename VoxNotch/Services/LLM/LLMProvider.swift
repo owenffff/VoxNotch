@@ -17,7 +17,7 @@ protocol LLMProvider: Sendable {
   ///   - text: The text to process
   ///   - prompt: The system/user prompt for processing
   /// - Returns: The processed text
-  func process(text: String, prompt: String) async throws -> String
+  func process(text: String, prompt: String, language: String?) async throws -> String
 }
 
 // MARK: - LLM Errors

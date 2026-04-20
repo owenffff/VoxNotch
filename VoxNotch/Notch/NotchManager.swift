@@ -211,24 +211,40 @@ final class NotchManager {
   }
 
   /// Detect the physical notch on the main screen and update sizing.
+  ///
+  /// On notched displays we read the real safe-area inset. On external /
+  /// non-notched displays we mirror the connected MacBook's notch size (if
+  /// any), falling back to standard MacBook Pro dimensions in clamshell mode.
+  /// This keeps the expanded capsule visually identical across displays.
   private func detectPhysicalNotch() {
     guard let screen = NSScreen.main else { return }
 
-    if let topLeft = screen.auxiliaryTopLeftArea?.width,
-       let topRight = screen.auxiliaryTopRightArea?.width
-    {
-      let notchWidth = screen.frame.width - topLeft - topRight
-      let notchHeight = screen.safeAreaInsets.top
+    if let size = notchSize(of: screen) {
       hasPhysicalNotch = true
-      physicalNotchSize = CGSize(width: notchWidth, height: notchHeight)
-    } else {
-      hasPhysicalNotch = false
-      let menuBarHeight = screen.frame.maxY - screen.visibleFrame.maxY
-      physicalNotchSize = CGSize(
-        width: 200,
-        height: max(menuBarHeight, 24)
-      )
+      physicalNotchSize = size
+      return
     }
+
+    hasPhysicalNotch = false
+    if let notched = NSScreen.screens.first(where: { notchSize(of: $0) != nil }),
+       let size = notchSize(of: notched)
+    {
+      physicalNotchSize = size
+    } else {
+      // Clamshell or no notched display connected — use MacBook Pro defaults.
+      physicalNotchSize = CGSize(width: 200, height: 32)
+    }
+  }
+
+  /// Returns the notch dimensions for `screen` if it has a camera notch.
+  private func notchSize(of screen: NSScreen) -> CGSize? {
+    guard let topLeft = screen.auxiliaryTopLeftArea?.width,
+          let topRight = screen.auxiliaryTopRightArea?.width
+    else { return nil }
+    return CGSize(
+      width: screen.frame.width - topLeft - topRight,
+      height: screen.safeAreaInsets.top
+    )
   }
 
   // MARK: - Fade and Order Out (tracked, cancellable)

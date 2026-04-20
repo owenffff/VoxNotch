@@ -10,6 +10,7 @@
 import AppKit
 import Foundation
 import GRDB
+import NaturalLanguage
 import os.log
 
 // MARK: - Output Result
@@ -328,7 +329,15 @@ final class DictationStateMachine {
 
                 let finalText: String
                 if llmProcessor.isEnabled {
-                    let llmResult = await llmProcessor.processWithResult(text: text)
+                    let effectiveLanguage: String? = {
+                        if settings.transcriptionLanguage != "auto" {
+                            return settings.transcriptionLanguage
+                        }
+                        if let lang = result.language { return lang }
+                        // Fallback: detect language from the transcribed text
+                        return Self.detectLanguage(of: text)
+                    }()
+                    let llmResult = await llmProcessor.processWithResult(text: text, language: effectiveLanguage)
                     finalText = llmResult.text
                     if case .fallback(_, let error) = llmResult {
                         await MainActor.run { onLLMWarning?(error.localizedDescription) }
@@ -435,6 +444,19 @@ final class DictationStateMachine {
                 transition(to: .idle)
             }
         }
+    }
+
+    // MARK: - Language Detection
+
+    /// Detect the dominant language of a text string using NLLanguageRecognizer.
+    /// Returns an ISO 639 code (e.g. "zh", "ja") or nil if undetermined.
+    private static func detectLanguage(of text: String) -> String? {
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(text)
+        guard let lang = recognizer.dominantLanguage else { return nil }
+        let code = lang.rawValue
+        // Only return non-English languages; English is the default behavior
+        return code == "en" ? nil : code
     }
 
     // MARK: - Pipeline: History Save

@@ -29,8 +29,8 @@ final class AudioCaptureManager {
             switch self {
             case .noInputAvailable:
                 return "No microphone found"
-            case .engineStartFailed:
-                return "Microphone failed to start"
+            case .engineStartFailed(let underlying):
+                return "Microphone failed to start: \(underlying.localizedDescription)"
             case .permissionDenied:
                 return "Microphone access denied"
             case .noAudioRecorded:
@@ -67,8 +67,10 @@ final class AudioCaptureManager {
 
     static let shared = AudioCaptureManager()
 
-    /// The audio engine for capture
-    private let audioEngine = AVAudioEngine()
+    /// The audio engine for capture. Replaced on rebuild in the `startRecording`
+    /// retry path, since certain CoreAudio failure modes (device churn, AU
+    /// format desync after sleep/wake) only clear with a fresh instance.
+    private var audioEngine = AVAudioEngine()
 
     /// Lock protecting state shared between the audio-tap thread and the main thread.
     private let audioLock = NSLock()
@@ -214,14 +216,71 @@ final class AudioCaptureManager {
     func selectInputDevice(_ deviceID: AudioDeviceID?) {
         selectedDeviceID = deviceID
 
-        /// Persist selection
+        /// Persist both the live ID (for the current session's UI) and the
+        /// stable UID (for cross-launch resolution).
         SettingsManager.shared.selectedMicrophoneDeviceID = deviceID.map { UInt32($0) } ?? 0
+        SettingsManager.shared.selectedMicrophoneDeviceUID = deviceID.flatMap { deviceUID(for: $0) } ?? ""
 
         /// Apply to audio engine if currently recording
         applySelectedDevice()
     }
 
-    /// Apply the selected device to the audio engine's input node
+    /// Look up the stable CoreAudio UID for a device ID.
+    private func deviceUID(for deviceID: AudioDeviceID) -> String? {
+        var propertyAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceUID,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var uid: CFString = "" as CFString
+        var size = UInt32(MemoryLayout<CFString>.size)
+        let status = AudioObjectGetPropertyData(
+            deviceID,
+            &propertyAddress,
+            0, nil,
+            &size,
+            &uid
+        )
+        return status == noErr ? (uid as String) : nil
+    }
+
+    /// Resolve a UID to the currently active AudioDeviceID, or nil if the
+    /// device with that UID isn't currently connected.
+    private func audioDeviceID(forUID uid: String) -> AudioDeviceID? {
+        guard !uid.isEmpty else { return nil }
+        for device in availableInputDevices() {
+            if deviceUID(for: device.id) == uid {
+                return device.id
+            }
+        }
+        return nil
+    }
+
+    /// Re-resolve `selectedDeviceID` from the persisted UID. AudioDeviceIDs
+    /// churn across sleep/wake and USB/Bluetooth reconnects — the UID is stable.
+    /// Called before each recording and on engine rebuild. If the device isn't
+    /// currently attached, clears the live ID but keeps the UID persisted so it
+    /// auto-reconnects when the device returns.
+    private func refreshSelectedDeviceFromPersistedUID() {
+        let uid = SettingsManager.shared.selectedMicrophoneDeviceUID
+        guard !uid.isEmpty else { return }
+
+        if let resolved = audioDeviceID(forUID: uid) {
+            if selectedDeviceID != resolved {
+                selectedDeviceID = resolved
+                SettingsManager.shared.selectedMicrophoneDeviceID = UInt32(resolved)
+            }
+        } else {
+            selectedDeviceID = nil
+            if SettingsManager.shared.selectedMicrophoneDeviceID != 0 {
+                SettingsManager.shared.selectedMicrophoneDeviceID = 0
+            }
+        }
+    }
+
+    /// Apply the selected device to the audio engine's input node. If setting
+    /// the chosen ID fails (device gone, ID drifted), falls back to the system
+    /// default so `engine.start()` has at least *some* valid device attached.
     private func applySelectedDevice() {
         let inputNode = audioEngine.inputNode
 
@@ -241,7 +300,11 @@ final class AudioCaptureManager {
             )
 
             if status != noErr {
-                logger.error("Failed to set input device (\(deviceID)): \(status)")
+                logger.error("Failed to set input device (\(deviceID)): \(status), falling back to system default")
+                selectedDeviceID = nil
+                SettingsManager.shared.selectedMicrophoneDeviceID = 0
+                applySelectedDevice()  // retry with default-device branch
+                return
             }
         } else {
             /// Revert to system default
@@ -317,14 +380,11 @@ final class AudioCaptureManager {
                 let hasDevice = self.hasInputDevice
                 AppState.shared.noMicrophoneDetected = !hasDevice
 
-                /// If the selected device was disconnected, revert to system default
-                if let selected = self.selectedDeviceID {
-                    let available = self.availableInputDevices()
-                    if !available.contains(where: { $0.id == selected }) {
-                        self.selectedDeviceID = nil
-                        SettingsManager.shared.selectedMicrophoneDeviceID = 0
-                    }
-                }
+                /// Re-resolve by UID first (device IDs shift on USB/Bluetooth
+                /// churn and sleep/wake; the UID is stable). Falls through to
+                /// clearing the live ID only when the device is truly gone —
+                /// the UID stays persisted so it auto-reconnects later.
+                self.refreshSelectedDeviceFromPersistedUID()
 
                 NotificationCenter.default.post(
                     name: Self.inputDevicesChangedNotification,
@@ -365,14 +425,31 @@ final class AudioCaptureManager {
         deviceChangeListenerBlock = nil
     }
 
-    /// Restore the persisted device selection on launch
+    /// Restore the persisted device selection on launch.
+    ///
+    /// Resolves via the stable device UID. Falls back to the legacy AudioDeviceID
+    /// for users migrating from the old persistence, and in that case upgrades
+    /// storage to UID-based so subsequent launches survive ID churn.
     func restoreDeviceSelection() {
-        let persistedID = SettingsManager.shared.selectedMicrophoneDeviceID
+        let persistedUID = SettingsManager.shared.selectedMicrophoneDeviceUID
 
-        if persistedID != 0 {
-            let available = availableInputDevices()
-            if available.contains(where: { $0.id == persistedID }) {
-                selectedDeviceID = AudioDeviceID(persistedID)
+        if !persistedUID.isEmpty, let resolvedID = audioDeviceID(forUID: persistedUID) {
+            selectedDeviceID = resolvedID
+            SettingsManager.shared.selectedMicrophoneDeviceID = UInt32(resolvedID)
+        } else {
+            // Legacy migration path: users with only the raw ID persisted.
+            let persistedID = SettingsManager.shared.selectedMicrophoneDeviceID
+            if persistedID != 0 {
+                let available = availableInputDevices()
+                if available.contains(where: { $0.id == persistedID }) {
+                    let resolved = AudioDeviceID(persistedID)
+                    selectedDeviceID = resolved
+                    if let uid = deviceUID(for: resolved) {
+                        SettingsManager.shared.selectedMicrophoneDeviceUID = uid
+                    }
+                } else {
+                    SettingsManager.shared.selectedMicrophoneDeviceID = 0
+                }
             }
         }
 
@@ -531,6 +608,10 @@ final class AudioCaptureManager {
             throw AudioCaptureError.permissionDenied
         }
 
+        // Re-resolve the selected device from its stable UID in case AudioDeviceIDs
+        // churned since last use (sleep/wake, USB/Bluetooth reconnect).
+        refreshSelectedDeviceFromPersistedUID()
+
         if isRecording {
             logger.debug("Already recording, restarting tap...")
             audioEngine.inputNode.removeTap(onBus: 0)
@@ -568,26 +649,47 @@ final class AudioCaptureManager {
             recordingStartTime = Date()
             logger.info("Started recording")
         } catch {
-            logger.warning("Failed to start engine: \(error.localizedDescription), attempting reset...")
-            audioEngine.inputNode.removeTap(onBus: 0)
-            isTapInstalled = false
-            audioEngine.reset()
-            audioLock.withLock { resamplingConverter = nil }
-            applySelectedDevice()
-            installTapIfNeeded()
-            
+            logger.warning("Failed to start engine: \(error.localizedDescription), rebuilding engine...")
+            rebuildAudioEngine()
+
             do {
                 audioEngine.prepare()
                 try audioEngine.start()
                 isRecording = true
                 recordingStartTime = Date()
-                logger.info("Started recording after reset")
+                logger.info("Started recording after engine rebuild")
             } catch let fallbackError {
-                audioEngine.inputNode.removeTap(onBus: 0)
-                isTapInstalled = false
+                if isTapInstalled {
+                    audioEngine.inputNode.removeTap(onBus: 0)
+                    isTapInstalled = false
+                }
                 throw AudioCaptureError.engineStartFailed(fallbackError)
             }
         }
+    }
+
+    /// Replace the `AVAudioEngine` with a fresh instance and re-attach the tap.
+    /// `reset()` clears engine state but keeps the same underlying AUHAL; for
+    /// certain CoreAudio failure modes (stale device after sleep, format desync
+    /// after mic unplug/replug) only a new engine fully recovers.
+    private func rebuildAudioEngine() {
+        if isTapInstalled {
+            audioEngine.inputNode.removeTap(onBus: 0)
+            isTapInstalled = false
+        }
+        if audioEngine.isRunning {
+            audioEngine.stop()
+        }
+        audioLock.withLock { resamplingConverter = nil }
+        reusableOutputBuffer = nil
+
+        audioEngine = AVAudioEngine()
+
+        // Re-resolve the selected device in case the ID drifted since last call.
+        refreshSelectedDeviceFromPersistedUID()
+
+        applySelectedDevice()
+        installTapIfNeeded()
     }
 
     /// Stop recording and save to file

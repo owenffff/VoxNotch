@@ -18,8 +18,10 @@ import MLXAudioSTT
 /// Which Swift class is responsible for loading a given MLX ASR model.
 /// Add a new case here when a new model family is introduced.
 enum MLXModelLoaderClass {
-  case glmASR    // GLMASRModel.fromPretrained
-  case qwen3ASR  // Qwen3ASRModel.fromPretrained
+  case glmASR           // GLMASRModel.fromPretrained
+  case qwen3ASR         // Qwen3ASRModel.fromPretrained
+  case voxtralRealtime  // VoxtralRealtimeModel.fromPretrained
+  case parakeet         // ParakeetModel.fromPretrained
 }
 
 // MARK: - MLX Audio Model Version
@@ -28,6 +30,7 @@ enum MLXModelLoaderClass {
 enum MLXAudioModelVersion: String, CaseIterable, Identifiable, Sendable {
   case glmAsrNano = "mlx-community/GLM-ASR-Nano-2512-4bit"
   case qwen3Asr = "mlx-community/Qwen3-ASR-1.7B-bf16"
+  case voxtralMini = "mlx-community/Voxtral-Mini-4B-Realtime-2602-4bit"
 
   var id: String { rawValue }
 
@@ -35,6 +38,7 @@ enum MLXAudioModelVersion: String, CaseIterable, Identifiable, Sendable {
     switch self {
     case .glmAsrNano: "GLM-ASR-Nano (4-bit)"
     case .qwen3Asr: "Qwen3-ASR 1.7B"
+    case .voxtralMini: "Voxtral Mini 4B (4-bit)"
     }
   }
 
@@ -42,12 +46,17 @@ enum MLXAudioModelVersion: String, CaseIterable, Identifiable, Sendable {
     switch self {
     case .glmAsrNano: 400
     case .qwen3Asr: 3400
+    case .voxtralMini: 3130
     }
   }
 
   var supportedLanguages: [String] {
-    /// Both models support multilingual ASR
-    ["en", "zh", "ja", "ko", "es", "fr", "de", "it", "pt", "ru", "ar"]
+    switch self {
+    case .glmAsrNano, .qwen3Asr:
+      ["en", "zh", "ja", "ko", "es", "fr", "de", "it", "pt", "ru", "ar"]
+    case .voxtralMini:
+      ["en", "ar", "de", "es", "fr", "hi", "it", "ja", "ko", "nl", "pt", "ru", "zh"]
+    }
   }
 
   /// Folder name used for local storage
@@ -55,6 +64,7 @@ enum MLXAudioModelVersion: String, CaseIterable, Identifiable, Sendable {
     switch self {
     case .glmAsrNano: "GLM-ASR-Nano-2512-4bit"
     case .qwen3Asr: "Qwen3-ASR-1.7B-bf16"
+    case .voxtralMini: "Voxtral-Mini-4B-Realtime-2602-4bit"
     }
   }
 
@@ -62,8 +72,9 @@ enum MLXAudioModelVersion: String, CaseIterable, Identifiable, Sendable {
   /// Update this when adding new model variants.
   var loaderClass: MLXModelLoaderClass {
     switch self {
-    case .glmAsrNano: .glmASR
-    case .qwen3Asr:   .qwen3ASR
+    case .glmAsrNano:   .glmASR
+    case .qwen3Asr:     .qwen3ASR
+    case .voxtralMini:  .voxtralRealtime
     }
   }
 }
@@ -219,6 +230,10 @@ final class MLXAudioModelManager: @unchecked Sendable {
       case .qwen3ASR:
         // Qwen3ASRModel.fromPretrained calls generateTokenizerJSONIfMissing() internally.
         loaded = try await Qwen3ASRModel.fromPretrained(version.rawValue)
+      case .voxtralRealtime:
+        loaded = try await VoxtralRealtimeModel.fromPretrained(version.rawValue)
+      case .parakeet:
+        loaded = try await ParakeetModel.fromPretrained(version.rawValue)
       }
       warmupInference(loaded)
       lock.lock()
@@ -351,6 +366,10 @@ final class MLXAudioModelManager: @unchecked Sendable {
         loaded = try await GLMASRModel.fromPretrained(model.hfRepoID)
       case .qwen3ASR:
         loaded = try await Qwen3ASRModel.fromPretrained(model.hfRepoID)
+      case .voxtralRealtime:
+        loaded = try await VoxtralRealtimeModel.fromPretrained(model.hfRepoID)
+      case .parakeet:
+        loaded = try await ParakeetModel.fromPretrained(model.hfRepoID)
       }
       warmupInference(loaded)
 
@@ -538,12 +557,21 @@ final class MLXAudioModelManager: @unchecked Sendable {
       logger.warning("Failed to parse config.json for \(hfRepoID), defaulting to glmASR: \(error)")
       return .glmASR
     }
-    guard let modelType = json["model_type"] as? String else { return .glmASR }
-
-    switch modelType {
-    case "qwen3_asr": return .qwen3ASR
-    default:          return .glmASR
+    if let modelType = json["model_type"] as? String {
+      switch modelType {
+      case "qwen3_asr":        return .qwen3ASR
+      case "voxtral_realtime": return .voxtralRealtime
+      case "glmasr":           return .glmASR
+      default: break
+      }
     }
+
+    // NeMo-style configs (Parakeet) lack a top-level model_type — detect by structure.
+    if json["joint"] != nil || json["encoder"] != nil {
+      return .parakeet
+    }
+
+    return .glmASR
   }
 
   /// Actual MLX Audio cache directory for a given model version.
@@ -647,8 +675,8 @@ enum MLXAudioError: LocalizedError {
     switch self {
     case .modelNotLoaded:
       return "Speech model not loaded"
-    case .modelDownloadFailed:
-      return "Model download failed"
+    case .modelDownloadFailed(let message):
+      return "Model download failed: \(message)"
     case .transcriptionFailed:
       return "Transcription failed"
     case .invalidAudioFormat:

@@ -137,6 +137,10 @@ final class MLXAudioProvider: TranscriptionProvider, @unchecked Sendable {
         loaded = try await GLMASRModel.fromPretrained(custom.hfRepoID)
       case .qwen3ASR:
         loaded = try await Qwen3ASRModel.fromPretrained(custom.hfRepoID)
+      case .voxtralRealtime:
+        loaded = try await VoxtralRealtimeModel.fromPretrained(custom.hfRepoID)
+      case .parakeet:
+        loaded = try await ParakeetModel.fromPretrained(custom.hfRepoID)
       }
       lock.withLock {
         model = loaded

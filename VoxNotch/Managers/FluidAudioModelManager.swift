@@ -492,8 +492,8 @@ enum FluidAudioError: LocalizedError {
     switch self {
     case .modelNotLoaded:
       return "Speech model not loaded"
-    case .modelDownloadFailed:
-      return "Model download failed"
+    case .modelDownloadFailed(let message):
+      return "Model download failed: \(message)"
     case .transcriptionFailed:
       return "Transcription failed"
     case .invalidAudioFormat:

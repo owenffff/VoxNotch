@@ -70,6 +70,9 @@ final class SettingsManager {
 
     /// Microphone Selection
     static let selectedMicrophoneDeviceID = "selectedMicrophoneDeviceID"
+    /// Stable CoreAudio UID (kAudioDevicePropertyDeviceUID) — survives sleep/wake
+    /// and reboots, unlike AudioDeviceID which can be reassigned.
+    static let selectedMicrophoneDeviceUID = "selectedMicrophoneDeviceUID"
 
     /// ASR Engine
     static let asrEngine = "asrEngine"
@@ -249,8 +252,17 @@ final class SettingsManager {
   // MARK: - Microphone Selection
 
   /// Persisted audio device ID for microphone selection. 0 = system default.
+  /// NOTE: AudioDeviceID is ephemeral — it can change across sleep/wake and
+  /// reboots. Treat it as a cache of the resolved ID; `selectedMicrophoneDeviceUID`
+  /// is the authoritative identifier across launches.
   var selectedMicrophoneDeviceID: UInt32 {
     didSet { save(selectedMicrophoneDeviceID, forKey: Keys.selectedMicrophoneDeviceID) }
+  }
+
+  /// Stable CoreAudio device UID used to re-resolve the selected microphone.
+  /// Empty string means "system default".
+  var selectedMicrophoneDeviceUID: String {
+    didSet { save(selectedMicrophoneDeviceUID, forKey: Keys.selectedMicrophoneDeviceUID) }
   }
 
   // MARK: - Tone Settings
@@ -292,15 +304,11 @@ final class SettingsManager {
       if let model = SpeechModel(rawValue: speechModel) {
         asrEngine = model.engine.rawValue
         // Also sync the specific model version
-        switch model {
-        case .parakeetV2:
-          fluidAudioModel = "v2"
-        case .parakeetV3:
-          fluidAudioModel = "v3"
-        case .glmAsrNano:
-          mlxAudioModel = MLXAudioModelVersion.glmAsrNano.rawValue
-        case .qwen3Asr:
-          mlxAudioModel = MLXAudioModelVersion.qwen3Asr.rawValue
+        switch model.engine {
+        case .fluidAudio:
+          if let v = model.fluidAudioVersion { fluidAudioModel = v.rawValue }
+        case .mlxAudio:
+          if let v = model.mlxAudioVersion { mlxAudioModel = v.rawValue }
         }
       } else {
         // Custom model — always uses the MLX Audio engine
@@ -430,6 +438,7 @@ final class SettingsManager {
 
     /// Microphone Selection (0 = system default)
     self.selectedMicrophoneDeviceID = defaults.object(forKey: Keys.selectedMicrophoneDeviceID) as? UInt32 ?? 0
+    self.selectedMicrophoneDeviceUID = defaults.string(forKey: Keys.selectedMicrophoneDeviceUID) ?? ""
 
     /// ASR Engine Settings
     self.asrEngine = defaults.string(forKey: Keys.asrEngine) ?? "fluidAudio"
@@ -512,7 +521,7 @@ final class SettingsManager {
       Keys.promptTemplate, Keys.customPrompt,
       Keys.useVADSpeechGate,
       Keys.enableAutoStopOnSilence, Keys.silenceThresholdDB, Keys.silenceDurationSeconds,
-      Keys.selectedMicrophoneDeviceID,
+      Keys.selectedMicrophoneDeviceID, Keys.selectedMicrophoneDeviceUID,
       Keys.asrEngine, Keys.mlxAudioModel, Keys.speechModel,
       Keys.fluidAudioModel,
       Keys.activeToneID, Keys.pinnedToneIDs,
@@ -548,6 +557,7 @@ final class SettingsManager {
     silenceThresholdDB = -50.0
     silenceDurationSeconds = 3.0
     selectedMicrophoneDeviceID = 0
+    selectedMicrophoneDeviceUID = ""
     asrEngine = "fluidAudio"
     mlxAudioModel = MLXAudioModelVersion.glmAsrNano.rawValue
     speechModel = SpeechModel.defaultModel.rawValue

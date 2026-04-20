@@ -143,9 +143,22 @@ struct CustomModelSheet: View {
     errorMessage = nil
 
     do {
-      // Attempt to load the model -- this validates it AND caches it via HF Hub
+      // Attempt to load the model -- this validates it AND caches it via HF Hub.
+      // Try GLM first (most common); if that fails, config.json is now cached so
+      // inferLoaderClass can detect the real architecture and retry.
       #if canImport(MLXAudioSTT)
-      let glmModel = try await GLMASRModel.fromPretrained(trimmedID)
+      let validated: any STTGenerationModel
+      do {
+        validated = try await GLMASRModel.fromPretrained(trimmedID)
+      } catch {
+        let loaderClass = MLXAudioModelManager.shared.inferLoaderClass(hfRepoID: trimmedID)
+        switch loaderClass {
+        case .glmASR:          throw error
+        case .qwen3ASR:        validated = try await Qwen3ASRModel.fromPretrained(trimmedID)
+        case .voxtralRealtime: validated = try await VoxtralRealtimeModel.fromPretrained(trimmedID)
+        case .parakeet:        validated = try await ParakeetModel.fromPretrained(trimmedID)
+        }
+      }
 
       // Register and mark downloaded
       let customModel = CustomModelRegistry.shared.add(repoID: trimmedID, displayName: name)
@@ -160,7 +173,7 @@ struct CustomModelSheet: View {
       }
 
       await MainActor.run {
-        _ = glmModel  // keep reference alive until here
+        _ = validated  // keep reference alive until here
         isValidating = false
         onAdd(customModel)
         dismiss()

@@ -29,31 +29,37 @@ final class SpeechModelTests: XCTestCase {
     XCTAssertNil(builtin)
   }
 
+  func testLegacyFluidAudioV3ResolvesToDefault() {
+    let (builtin, custom) = SpeechModel.resolve("fluidaudio-v3")
+    XCTAssertEqual(builtin, SpeechModel.defaultModel)
+    XCTAssertNil(custom)
+  }
+
   // MARK: - Engine Mapping
 
   func testFluidAudioModelsMapToFluidAudioEngine() {
     XCTAssertEqual(SpeechModel.parakeetV2.engine, .fluidAudio)
-    XCTAssertEqual(SpeechModel.parakeetV3.engine, .fluidAudio)
   }
 
   func testMLXModelsMapToMLXEngine() {
     XCTAssertEqual(SpeechModel.glmAsrNano.engine, .mlxAudio)
     XCTAssertEqual(SpeechModel.qwen3Asr.engine, .mlxAudio)
+    XCTAssertEqual(SpeechModel.voxtralMini.engine, .mlxAudio)
   }
 
   // MARK: - Version Conversion
 
   func testFluidAudioVersionConversion() {
     XCTAssertEqual(SpeechModel.parakeetV2.fluidAudioVersion, .v2English)
-    XCTAssertEqual(SpeechModel.parakeetV3.fluidAudioVersion, .v3Multilingual)
     XCTAssertNil(SpeechModel.glmAsrNano.fluidAudioVersion)
     XCTAssertNil(SpeechModel.qwen3Asr.fluidAudioVersion)
+    XCTAssertNil(SpeechModel.voxtralMini.fluidAudioVersion)
   }
 
   func testMLXAudioVersionConversion() {
     XCTAssertNil(SpeechModel.parakeetV2.mlxAudioVersion)
-    XCTAssertNil(SpeechModel.parakeetV3.mlxAudioVersion)
     XCTAssertEqual(SpeechModel.glmAsrNano.mlxAudioVersion, .glmAsrNano)
     XCTAssertEqual(SpeechModel.qwen3Asr.mlxAudioVersion, .qwen3Asr)
+    XCTAssertEqual(SpeechModel.voxtralMini.mlxAudioVersion, .voxtralMini)
   }
 }
