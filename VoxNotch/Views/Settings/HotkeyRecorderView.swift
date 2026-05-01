@@ -339,6 +339,193 @@ enum HotkeyConflictDetector {
   }
 }
 
+// MARK: - System Audio Hotkey Recorder (Modifier + Key)
+
+/// Records a modifier + key combo for the system-audio dictation hotkey.
+/// Unlike the primary recorder which is modifier-only, this captures one
+/// trigger key (e.g. `, F1, Space) plus 1+ modifiers. Used because
+/// modifier-only combos for system audio collide with too many real shortcuts.
+struct SystemAudioHotkeyRecorderView: View {
+
+  @Binding var displayString: String
+  @Binding var modifierFlags: UInt64
+  @Binding var keyCode: Int
+
+  @StateObject private var recorder = ModifierPlusKeyHotkeyRecorder()
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 4) {
+      HStack(spacing: 8) {
+        hotkeyDisplay
+
+        if recorder.isRecording {
+          Button("Cancel") { recorder.stopRecording() }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+        } else {
+          Button("Change") {
+            recorder.startRecording { flags, code, display in
+              modifierFlags = flags
+              keyCode = code
+              displayString = display
+            }
+          }
+          .buttonStyle(.borderless)
+        }
+      }
+
+      if let error = recorder.validationError {
+        HStack(alignment: .top, spacing: 4) {
+          Image(systemName: "xmark.circle.fill")
+            .foregroundStyle(.red)
+          Text(error)
+            .font(.caption)
+            .foregroundStyle(.red)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 4)
+      }
+    }
+  }
+
+  private var hotkeyDisplay: some View {
+    HStack(spacing: 4) {
+      if recorder.isRecording {
+        Text(recorder.currentDisplay.isEmpty ? "Press a modifier + key..." : recorder.currentDisplay)
+          .font(recorder.currentDisplay.isEmpty ? .body : .system(size: 14, weight: .medium, design: .rounded))
+          .foregroundStyle(recorder.currentDisplay.isEmpty ? .secondary : .primary)
+          .italic(recorder.currentDisplay.isEmpty)
+      } else {
+        Text(displayString)
+          .font(.system(size: 14, weight: .medium, design: .rounded))
+      }
+    }
+    .frame(minWidth: 80)
+    .padding(.horizontal, 12)
+    .padding(.vertical, 8)
+    .background(recorder.isRecording ? Color.accentColor.opacity(0.1) : Color(nsColor: .quaternarySystemFill))
+    .clipShape(RoundedRectangle(cornerRadius: 8))
+    .overlay {
+      RoundedRectangle(cornerRadius: 8)
+        .stroke(recorder.isRecording ? Color.accentColor : Color.clear, lineWidth: 2)
+    }
+  }
+}
+
+/// Recorder for modifier + key combos. Captures the first keyDown that arrives
+/// with at least one modifier held. Rejects bare keys (would always trigger)
+/// and reserved system keys (Tab, Escape, Return).
+final class ModifierPlusKeyHotkeyRecorder: ObservableObject {
+
+  @Published var isRecording: Bool = false
+  @Published var currentDisplay: String = ""
+  @Published var validationError: String?
+
+  private var onCapture: ((UInt64, Int, String) -> Void)?
+  private var eventMonitor: Any?
+  private var currentModifierFlags: NSEvent.ModifierFlags = []
+
+  /// Reserved keycodes that we won't allow as triggers (would break basic typing/navigation).
+  private let reservedKeyCodes: Set<UInt16> = [
+    36,  // Return
+    48,  // Tab
+    51,  // Delete
+    53,  // Escape
+    76,  // Enter (numpad)
+  ]
+
+  func startRecording(onCapture: @escaping (UInt64, Int, String) -> Void) {
+    self.onCapture = onCapture
+    isRecording = true
+    currentDisplay = ""
+    validationError = nil
+    currentModifierFlags = []
+    HotkeyManager.shared.isPaused = true
+    eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.flagsChanged, .keyDown]) { [weak self] event in
+      self?.handleEvent(event)
+      return event
+    }
+  }
+
+  func stopRecording() {
+    isRecording = false
+    currentDisplay = ""
+    currentModifierFlags = []
+    HotkeyManager.shared.isPaused = false
+    if let monitor = eventMonitor {
+      NSEvent.removeMonitor(monitor)
+      eventMonitor = nil
+    }
+    onCapture = nil
+  }
+
+  private func handleEvent(_ event: NSEvent) {
+    guard isRecording else { return }
+
+    if event.type == .flagsChanged {
+      currentModifierFlags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+      DispatchQueue.main.async { [weak self] in
+        guard let self else { return }
+        self.currentDisplay = self.symbolString(for: self.currentModifierFlags)
+      }
+      return
+    }
+
+    guard event.type == .keyDown else { return }
+
+    let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+    let modifierCount = [NSEvent.ModifierFlags.control, .option, .shift, .command].filter { mods.contains($0) }.count
+
+    if modifierCount == 0 {
+      DispatchQueue.main.async { [weak self] in
+        self?.validationError = "Pick a modifier (Control, Option, Shift, or Command) plus a key."
+        self?.stopRecording()
+      }
+      return
+    }
+
+    let code = event.keyCode
+    if reservedKeyCodes.contains(code) {
+      DispatchQueue.main.async { [weak self] in
+        self?.validationError = "That key is reserved by the system. Pick a different one."
+        self?.stopRecording()
+      }
+      return
+    }
+
+    let cgFlags = convertToCGEventFlags(mods)
+    let keyChar = (event.charactersIgnoringModifiers ?? "").uppercased()
+    let display = symbolString(for: mods) + (keyChar.isEmpty ? "·" : keyChar)
+
+    DispatchQueue.main.async { [weak self] in
+      self?.onCapture?(cgFlags, Int(code), display)
+      self?.stopRecording()
+    }
+  }
+
+  private func convertToCGEventFlags(_ nsFlags: NSEvent.ModifierFlags) -> UInt64 {
+    var result: UInt64 = 0
+    if nsFlags.contains(.control)  { result |= CGEventFlags.maskControl.rawValue }
+    if nsFlags.contains(.option)   { result |= CGEventFlags.maskAlternate.rawValue }
+    if nsFlags.contains(.shift)    { result |= CGEventFlags.maskShift.rawValue }
+    if nsFlags.contains(.command)  { result |= CGEventFlags.maskCommand.rawValue }
+    return result
+  }
+
+  private func symbolString(for flags: NSEvent.ModifierFlags) -> String {
+    var symbols: [String] = []
+    if flags.contains(.control) { symbols.append("\u{2303}") }
+    if flags.contains(.option)  { symbols.append("\u{2325}") }
+    if flags.contains(.shift)   { symbols.append("\u{21E7}") }
+    if flags.contains(.command) { symbols.append("\u{2318}") }
+    return symbols.joined()
+  }
+
+  deinit {
+    if let monitor = eventMonitor { NSEvent.removeMonitor(monitor) }
+  }
+}
+
 // MARK: - Preview
 
 #Preview {

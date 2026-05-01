@@ -12,7 +12,6 @@ final class MockAudioRecording: AudioRecording {
 
     var isRecording: Bool = false
     var accumulateBuffers: Bool = false
-    var hasMicrophonePermission: Bool = true
     var onSilenceWarning: (() -> Void)?
     var onSilenceThresholdReached: (() -> Void)?
 
@@ -26,11 +25,7 @@ final class MockAudioRecording: AudioRecording {
     var stubbedStartError: Error?
     var stubbedStopError: Error?
 
-    func requestMicrophonePermission(completion: @escaping (Bool) -> Void) {
-        completion(hasMicrophonePermission)
-    }
-
-    func startRecording() throws {
+    func startRecording() async throws {
         if let error = stubbedStartError { throw error }
         startRecordingCallCount += 1
         isRecording = true

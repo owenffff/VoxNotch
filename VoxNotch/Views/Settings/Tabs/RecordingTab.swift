@@ -8,6 +8,7 @@
 import SwiftUI
 import AVFoundation
 import CoreAudio
+import CoreGraphics
 
 struct RecordingTab: View {
 
@@ -160,10 +161,27 @@ struct RecordingTab: View {
           settings.updateHotkey(modifierFlags: 0xC0000, displayString: "\u{2303}\u{2325}")
         }
         .buttonStyle(.borderless)
+
+        LabeledContent("System Audio Hotkey") {
+          SystemAudioHotkeyRecorderView(
+            displayString: $settings.systemAudioHotkeyDisplay,
+            modifierFlags: $settings.systemAudioHotkeyModifierFlags,
+            keyCode: $settings.systemAudioHotkeyKeyCode
+          )
+        }
+
+        Button("Reset to Default (\u{2325}`)") {
+          settings.updateSystemAudioHotkey(
+            modifierFlags: CGEventFlags.maskAlternate.rawValue,
+            keyCode: 50,
+            displayString: "\u{2325}`"
+          )
+        }
+        .buttonStyle(.borderless)
       } header: {
         Text("Hotkey")
       } footer: {
-        Text("Press and hold this shortcut to start recording.")
+        Text("Hold the recording hotkey to dictate your microphone. Hold the system audio hotkey to transcribe what's playing through your speakers (requires Screen Recording permission).")
       }
 
       // MARK: Recording Behavior
@@ -239,11 +257,15 @@ struct RecordingTab: View {
     testAudioURL = nil
     stopPlayback()
 
-    do {
-      try AudioCaptureManager.shared.startRecording()
-      isTesting = true
-    } catch {
-      testError = "Failed to start recording: \(error.localizedDescription)"
+    Task {
+      do {
+        try await AudioCaptureManager.shared.startRecording()
+        await MainActor.run { isTesting = true }
+      } catch {
+        await MainActor.run {
+          testError = "Failed to start recording: \(error.localizedDescription)"
+        }
+      }
     }
   }
 

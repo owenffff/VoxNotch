@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import CoreGraphics
 import os.log
 
 // MARK: - Notification Names
@@ -41,6 +42,11 @@ final class SettingsManager {
     static let hotkeyModifierFlags = "hotkeyModifierFlags"
     static let holdToRecord = "holdToRecord"
     static let minimumRecordingDuration = "minimumRecordingDuration"
+
+    /// Secondary hotkey (modifier + key) for system-audio dictation
+    static let systemAudioHotkeyModifierFlags = "systemAudioHotkeyModifierFlags"
+    static let systemAudioHotkeyKeyCode = "systemAudioHotkeyKeyCode"
+    static let systemAudioHotkeyDisplay = "systemAudioHotkeyDisplay"
 
     /// Model
     static let selectedModel = "selectedModel"
@@ -153,12 +159,40 @@ final class SettingsManager {
     didSet { save(minimumRecordingDuration, forKey: Keys.minimumRecordingDuration) }
   }
 
+  /// Raw modifier flags for the system-audio hotkey (default: Option = 0x80000)
+  var systemAudioHotkeyModifierFlags: UInt64 {
+    didSet {
+      save(systemAudioHotkeyModifierFlags, forKey: Keys.systemAudioHotkeyModifierFlags)
+      NotificationCenter.default.post(name: .hotkeyConfigurationChanged, object: nil)
+    }
+  }
+
+  /// Virtual keycode for the system-audio hotkey (default: kVK_ANSI_Grave = 50)
+  var systemAudioHotkeyKeyCode: Int {
+    didSet {
+      save(systemAudioHotkeyKeyCode, forKey: Keys.systemAudioHotkeyKeyCode)
+      NotificationCenter.default.post(name: .hotkeyConfigurationChanged, object: nil)
+    }
+  }
+
+  /// Display string for the system-audio hotkey (e.g. "⌥`")
+  var systemAudioHotkeyDisplay: String {
+    didSet { save(systemAudioHotkeyDisplay, forKey: Keys.systemAudioHotkeyDisplay) }
+  }
+
   // MARK: - Hotkey Helper Methods
 
   /// Update hotkey configuration from modifier flags
   func updateHotkey(modifierFlags: UInt64, displayString: String) {
     self.hotkeyModifierFlags = modifierFlags
     self.hotkeyModifiers = displayString
+  }
+
+  /// Update the system-audio hotkey (modifier + key)
+  func updateSystemAudioHotkey(modifierFlags: UInt64, keyCode: Int, displayString: String) {
+    self.systemAudioHotkeyModifierFlags = modifierFlags
+    self.systemAudioHotkeyKeyCode = keyCode
+    self.systemAudioHotkeyDisplay = displayString
   }
 
   // MARK: - Model Settings
@@ -411,6 +445,12 @@ final class SettingsManager {
     self.holdToRecord = defaults.object(forKey: Keys.holdToRecord) as? Bool ?? true
     self.minimumRecordingDuration = defaults.object(forKey: Keys.minimumRecordingDuration) as? Double ?? 0.2
 
+    /// System-audio hotkey: Option + ` (grave/backtick), keyCode 50
+    self.systemAudioHotkeyModifierFlags = defaults.object(forKey: Keys.systemAudioHotkeyModifierFlags) as? UInt64
+      ?? CGEventFlags.maskAlternate.rawValue
+    self.systemAudioHotkeyKeyCode = defaults.object(forKey: Keys.systemAudioHotkeyKeyCode) as? Int ?? 50
+    self.systemAudioHotkeyDisplay = defaults.string(forKey: Keys.systemAudioHotkeyDisplay) ?? "⌥`"
+
     /// Model
     self.selectedModel = defaults.string(forKey: Keys.selectedModel) ?? "whisper-base"
     self.transcriptionLanguage = defaults.string(forKey: Keys.transcriptionLanguage) ?? "auto"
@@ -514,6 +554,7 @@ final class SettingsManager {
     let allKeys = [
       Keys.launchAtLogin, Keys.useEscToCancel,
       Keys.hotkeyModifiers, Keys.hotkeyModifierFlags, Keys.holdToRecord, Keys.minimumRecordingDuration,
+      Keys.systemAudioHotkeyModifierFlags, Keys.systemAudioHotkeyKeyCode, Keys.systemAudioHotkeyDisplay,
       Keys.selectedModel, Keys.transcriptionLanguage,
       Keys.addSpaceAfterTranscription, Keys.removeFillerWords, Keys.applyITN,
       Keys.restoreClipboard, Keys.useClipboardForOutput,
@@ -540,6 +581,9 @@ final class SettingsManager {
     hotkeyModifierFlags = 0xC0000
     holdToRecord = true
     minimumRecordingDuration = 0.2
+    systemAudioHotkeyModifierFlags = CGEventFlags.maskAlternate.rawValue
+    systemAudioHotkeyKeyCode = 50
+    systemAudioHotkeyDisplay = "⌥`"
     selectedModel = "whisper-base"
     transcriptionLanguage = "auto"
     restoreClipboard = true

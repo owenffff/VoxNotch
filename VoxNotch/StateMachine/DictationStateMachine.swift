@@ -65,7 +65,11 @@ final class DictationStateMachine {
 
     // MARK: - Dependencies
 
-    private let audioManager: AudioRecording
+    private let micAudioManager: AudioRecording
+    private let systemAudioManager: AudioRecording
+    /// The audio manager driving the current recording session.
+    /// Set at `beginRecording(audioSource:)` time and used through stop/cancel/cleanup.
+    private var audioManager: AudioRecording
     private let transcriptionEngine: TranscriptionEngine
     private let llmProcessor: LLMProcessing
     private let textOutputManager: TextOutputting
@@ -103,6 +107,7 @@ final class DictationStateMachine {
 
     init(
         audioManager: AudioRecording = AudioCaptureManager.shared,
+        systemAudioManager: AudioRecording = SystemAudioCaptureManager.shared,
         transcriptionEngine: TranscriptionEngine = TranscriptionService.shared,
         llmProcessor: LLMProcessing = LLMService.shared,
         textOutputManager: TextOutputting = TextOutputManager.shared,
@@ -111,6 +116,8 @@ final class DictationStateMachine {
         toneRegistry: ToneRegistry = .shared,
         clock: AppClock? = nil
     ) {
+        self.micAudioManager = audioManager
+        self.systemAudioManager = systemAudioManager
         self.audioManager = audioManager
         self.transcriptionEngine = transcriptionEngine
         self.llmProcessor = llmProcessor
@@ -241,14 +248,20 @@ final class DictationStateMachine {
 
     // MARK: - Pipeline: Begin Recording
 
-    /// Begin audio capture. Called by controller after pre-flight checks pass.
-    func beginRecording() throws {
+    /// Begin audio capture from the chosen source. Called by the controller
+    /// after pre-flight checks (permission, model availability) pass.
+    /// The selected manager is retained for the duration of the session so that
+    /// stop/cancel/cleanup all target the same source.
+    func beginRecording(audioSource: AudioSource = .microphone) async throws {
+        let manager: AudioRecording = (audioSource == .systemAudio) ? systemAudioManager : micAudioManager
+        audioManager = manager
+
         transition(to: .recording)
         recordingStartTime = clock.now()
         startDurationTimer()
 
-        audioManager.accumulateBuffers = true
-        try audioManager.startRecording()
+        manager.accumulateBuffers = true
+        try await manager.startRecording()
         transcriptionEngine.preloadModel()
     }
 

@@ -34,8 +34,19 @@ final class HotkeyManager {
     /// Default: Control + Option
     private(set) var modifierFlags: CGEventFlags = [.maskControl, .maskAlternate]
 
+    /// Modifier flags for the secondary (system-audio) hotkey. Default: Option.
+    /// The secondary hotkey is a modifier+key combo (unlike the primary, which
+    /// is modifier-only). Pairs with `secondaryKeyCode`.
+    private(set) var secondaryModifierFlags: CGEventFlags = [.maskAlternate]
+
+    /// Virtual keycode for the secondary hotkey trigger key. Default: 50 (` / ~).
+    private(set) var secondaryKeyCode: Int64 = 50
+
     /// Callback for hotkey events
     var onHotkeyEvent: HotkeyCallback?
+
+    /// Callback for the secondary (system-audio) hotkey events.
+    var onSecondaryHotkeyEvent: HotkeyCallback?
 
     /// Callback for model switch arrow keys (-1 = left, +1 = right) while hotkey is held
     var onModelSwitchKey: ((Int) -> Void)?
@@ -49,6 +60,11 @@ final class HotkeyManager {
     /// Whether the hotkey is currently pressed
     private(set) var isHotkeyPressed: Bool = false
 
+    /// Whether the secondary hotkey (modifier+key) is currently pressed.
+    /// Used as an auto-repeat guard: macOS auto-repeats keyDown while held,
+    /// but we only want to fire `.keyDown` once per press.
+    private(set) var isSecondaryHotkeyPressed: Bool = false
+
     /// Whether global hotkey detection is temporarily paused (e.g., during hotkey recording)
     var isPaused: Bool = false {
         didSet {
@@ -56,6 +72,12 @@ final class HotkeyManager {
                 isHotkeyPressed = false
                 DispatchQueue.main.async { [weak self] in
                     self?.onHotkeyEvent?(.keyUp)
+                }
+            }
+            if isPaused && isSecondaryHotkeyPressed {
+                isSecondaryHotkeyPressed = false
+                DispatchQueue.main.async { [weak self] in
+                    self?.onSecondaryHotkeyEvent?(.keyUp)
                 }
             }
         }
@@ -89,9 +111,11 @@ final class HotkeyManager {
 
     /// Load hotkey configuration from SettingsManager
     private func loadFromSettings() {
-        let flags = SettingsManager.shared.hotkeyModifierFlags
-        modifierFlags = CGEventFlags(rawValue: flags)
-        logger.debug("Loaded modifiers from settings: \(self.modifierFlags.modifierDescription)")
+        let settings = SettingsManager.shared
+        modifierFlags = CGEventFlags(rawValue: settings.hotkeyModifierFlags)
+        secondaryModifierFlags = CGEventFlags(rawValue: settings.systemAudioHotkeyModifierFlags)
+        secondaryKeyCode = Int64(settings.systemAudioHotkeyKeyCode)
+        logger.debug("Loaded modifiers: primary=\(self.modifierFlags.modifierDescription), secondary=\(self.secondaryModifierFlags.modifierDescription)+keyCode=\(self.secondaryKeyCode)")
     }
 
     /// Setup observer for hotkey configuration changes
@@ -141,9 +165,11 @@ final class HotkeyManager {
             return true
         }
 
-        // Create event tap for modifier changes and key down events
+        // Create event tap for modifier changes and key down/up events
+        // (keyUp is needed to detect release of the secondary hotkey trigger key).
         let eventMask = (1 << CGEventType.flagsChanged.rawValue) |
-                        (1 << CGEventType.keyDown.rawValue)
+                        (1 << CGEventType.keyDown.rawValue) |
+                        (1 << CGEventType.keyUp.rawValue)
 
         // Create callback wrapper
         let callback: CGEventTapCallBack = { _, type, event, refcon in
@@ -232,6 +258,24 @@ final class HotkeyManager {
                 }
             }
 
+            // Secondary hotkey (modifier + key) — fire .keyDown once per press.
+            // Auto-repeat sends repeated keyDowns while held; the guard makes
+            // sure the callback fires exactly once until the key is released.
+            let relevantMask: CGEventFlags = [.maskControl, .maskAlternate, .maskCommand, .maskShift]
+            let filteredFlagsForSecondary = flags.intersection(relevantMask)
+            let secondaryTargetMask = secondaryModifierFlags.intersection(relevantMask)
+            if filteredFlagsForSecondary == secondaryTargetMask
+                && filteredFlagsForSecondary.rawValue != 0
+                && keyCode == secondaryKeyCode {
+                if !isSecondaryHotkeyPressed {
+                    isSecondaryHotkeyPressed = true
+                    DispatchQueue.main.async { [weak self] in
+                        self?.onSecondaryHotkeyEvent?(.keyDown)
+                    }
+                }
+                return nil
+            }
+
             // Arrow keys while hotkey is held — consume event and fire switch callbacks
             if isHotkeyPressed {
                 if keyCode == 123 { // kVK_LeftArrow
@@ -249,6 +293,19 @@ final class HotkeyManager {
                 }
             }
 
+            return Unmanaged.passRetained(event)
+        }
+
+        // Handle keyUp: release the secondary hotkey if its trigger key was lifted.
+        if type == .keyUp {
+            let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+            if isSecondaryHotkeyPressed && keyCode == secondaryKeyCode {
+                isSecondaryHotkeyPressed = false
+                DispatchQueue.main.async { [weak self] in
+                    self?.onSecondaryHotkeyEvent?(.keyUp)
+                }
+                return nil
+            }
             return Unmanaged.passRetained(event)
         }
 
@@ -274,6 +331,18 @@ final class HotkeyManager {
             print("HotkeyManager: State transition - Active: \(hotkeyActive), WasPressed: \(isHotkeyPressed), Flags: \(filteredFlags.rawValue), Target: \(targetMask)")
         }
         #endif
+
+        // Secondary hotkey safety: if the user releases the modifier(s) while
+        // the secondary trigger key is still held (or vice versa), force-release.
+        if isSecondaryHotkeyPressed {
+            let secondaryTargetMask = secondaryModifierFlags.intersection(relevantMask).rawValue
+            if filteredFlags.rawValue != secondaryTargetMask {
+                isSecondaryHotkeyPressed = false
+                DispatchQueue.main.async { [weak self] in
+                    self?.onSecondaryHotkeyEvent?(.keyUp)
+                }
+            }
+        }
 
         if hotkeyActive && !isHotkeyPressed {
             // Hotkey just pressed

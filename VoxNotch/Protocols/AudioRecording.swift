@@ -2,20 +2,26 @@
 //  AudioRecording.swift
 //  VoxNotch
 //
-//  Protocol abstracting AudioCaptureManager for testability.
+//  Protocol abstracting audio capture for testability and source-swap
+//  (microphone vs. system audio).
 //
 
 import Foundation
 
-/// Abstraction over audio capture so QuickDictationController can be tested with mocks.
+/// Abstraction over audio capture so QuickDictationController can be tested with mocks
+/// and so the pipeline can swap between microphone and system-audio sources transparently.
+/// The `AudioSource` enum is defined in Models/AudioSource.swift.
+///
+/// `startRecording()` is async because some sources (ScreenCaptureKit) need to negotiate
+/// permissions and start an IPC stream; faking it sync would lie about when capture began.
+/// Permission management is intentionally NOT on this protocol — it differs by source
+/// (Microphone vs. Screen Recording) and is the caller's concern.
 protocol AudioRecording: AnyObject {
     var isRecording: Bool { get }
     var accumulateBuffers: Bool { get set }
-    var hasMicrophonePermission: Bool { get }
     var onSilenceWarning: (() -> Void)? { get set }
     var onSilenceThresholdReached: (() -> Void)? { get set }
-    func requestMicrophonePermission(completion: @escaping (Bool) -> Void)
-    func startRecording() throws
+    func startRecording() async throws
     func stopRecording() throws -> AudioCaptureManager.CaptureResult
     func cancelRecording()
     func cleanupFile(at url: URL)

@@ -7,6 +7,7 @@
 
 import Foundation
 import AVFoundation
+import CoreGraphics
 import ScreenCaptureKit
 import Accelerate
 import os.log
@@ -52,6 +53,22 @@ final class SystemAudioCaptureManager: NSObject, SCStreamOutput, SCStreamDelegat
 
     /// Whether we're currently recording
     private(set) var isRecording: Bool = false
+
+    /// Always accumulates internally; the setter is a no-op kept for `AudioRecording` conformance.
+    var accumulateBuffers: Bool = true
+
+    /// Whether Screen Recording permission is currently granted.
+    /// `CGPreflightScreenCaptureAccess` returns the status without prompting.
+    var hasScreenRecordingPermission: Bool {
+        CGPreflightScreenCaptureAccess()
+    }
+
+    /// Trigger the macOS Screen Recording permission prompt. The system shows the prompt
+    /// the first time; subsequent calls just return the current status.
+    @discardableResult
+    func requestScreenRecordingPermission() -> Bool {
+        CGRequestScreenCaptureAccess()
+    }
 
     /// Recording start time
     private var recordingStartTime: Date?
@@ -544,6 +561,10 @@ final class SystemAudioCaptureManager: NSObject, SCStreamOutput, SCStreamDelegat
         return bands
     }
 }
+
+// MARK: - AudioRecording Conformance
+
+extension SystemAudioCaptureManager: AudioRecording {}
 
 // MARK: - CMSampleBuffer → AVAudioPCMBuffer Extension
 

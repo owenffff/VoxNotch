@@ -41,6 +41,7 @@ final class QuickDictationController {
     // Dependencies
     private let hotkeyManager: HotkeyManager
     private let audioManager: AudioRecording
+    private let systemAudioManager: AudioRecording
     private let appState: AppState
     private let notchPresenter: NotchPresenting
     private let soundManager: SoundManager
@@ -51,6 +52,10 @@ final class QuickDictationController {
     /// Captured before the notch panel appears so AX queries target the correct app.
     private var savedFrontmostApp: NSRunningApplication?
 
+    /// Audio source for the current/next recording. Set by hotkey handlers
+    /// before calling `startRecording()` and read by the state machine.
+    private var pendingAudioSource: AudioSource = .microphone
+
     /// Cooldown after a cancel before accepting a new recording (prevents frame drops on rapid presses)
     private let cancelCooldown: TimeInterval = 0.3
 
@@ -59,6 +64,7 @@ final class QuickDictationController {
     init(
         hotkeyManager: HotkeyManager = .shared,
         audioManager: AudioRecording = AudioCaptureManager.shared,
+        systemAudioManager: AudioRecording = SystemAudioCaptureManager.shared,
         textOutputManager: TextOutputting = TextOutputManager.shared,
         transcriptionEngine: TranscriptionEngine = TranscriptionService.shared,
         llmProcessor: LLMProcessing = LLMService.shared,
@@ -70,6 +76,7 @@ final class QuickDictationController {
     ) {
         self.hotkeyManager = hotkeyManager
         self.audioManager = audioManager
+        self.systemAudioManager = systemAudioManager
         self.appState = appState
         self.notchPresenter = notchPresenter
         self.soundManager = soundManager
@@ -79,6 +86,7 @@ final class QuickDictationController {
         // State machine owns the pipeline dependencies
         self.stateMachine = DictationStateMachine(
             audioManager: audioManager,
+            systemAudioManager: systemAudioManager,
             transcriptionEngine: transcriptionEngine,
             llmProcessor: llmProcessor,
             textOutputManager: textOutputManager,
@@ -125,6 +133,7 @@ final class QuickDictationController {
             self?.logger.debug("Received hotkey event: \(String(describing: event))")
             switch event {
             case .keyDown:
+                self?.pendingAudioSource = .microphone
                 self?.startRecording()
             case .keyUp:
                 if case .modelSelecting = self?.stateMachine.state {
@@ -134,6 +143,17 @@ final class QuickDictationController {
                 } else {
                     self?.stateMachine.stopRecordingAndTranscribe(savedFrontmostApp: self?.savedFrontmostApp)
                 }
+            }
+        }
+
+        hotkeyManager.onSecondaryHotkeyEvent = { [weak self] event in
+            self?.logger.debug("Received system-audio hotkey event: \(String(describing: event))")
+            switch event {
+            case .keyDown:
+                self?.pendingAudioSource = .systemAudio
+                self?.startRecording()
+            case .keyUp:
+                self?.stateMachine.stopRecordingAndTranscribe(savedFrontmostApp: self?.savedFrontmostApp)
             }
         }
     }
@@ -159,20 +179,24 @@ final class QuickDictationController {
     }
 
     private func setupSilenceDetection() {
-        audioManager.onSilenceWarning = { [weak self] in
+        let onWarning: () -> Void = { [weak self] in
             guard let self = self,
                   case .recording = self.stateMachine.state
             else { return }
             self.appState.silenceWarningActive = true
         }
-
-        audioManager.onSilenceThresholdReached = { [weak self] in
+        let onThreshold: () -> Void = { [weak self] in
             guard let self = self,
                   case .recording = self.stateMachine.state
             else { return }
             self.appState.silenceWarningActive = false
             self.stateMachine.stopRecordingAndTranscribe(savedFrontmostApp: self.savedFrontmostApp)
         }
+
+        audioManager.onSilenceWarning = onWarning
+        audioManager.onSilenceThresholdReached = onThreshold
+        systemAudioManager.onSilenceWarning = onWarning
+        systemAudioManager.onSilenceThresholdReached = onThreshold
     }
 
     /// Timer for retrying hotkey listener after permission is granted
@@ -183,8 +207,8 @@ final class QuickDictationController {
         if !hotkeyManager.hasAccessibilityPermission {
             hotkeyManager.requestAccessibilityPermission()
         }
-        if !audioManager.hasMicrophonePermission {
-            audioManager.requestMicrophonePermission { _ in }
+        if !AudioCaptureManager.shared.hasMicrophonePermission {
+            AudioCaptureManager.shared.requestMicrophonePermission { _ in }
         }
         if hotkeyManager.startListening() {
             logger.info("Hotkey listener started")
@@ -305,27 +329,47 @@ final class QuickDictationController {
             return
         }
 
-        // Mic permission pre-check
-        guard audioManager.hasMicrophonePermission else {
-            logger.info("No mic permission, requesting...")
-            audioManager.requestMicrophonePermission { [weak self] granted in
-                self?.logger.info("Mic permission result: \(granted)")
-                if granted { self?.startRecording() }
+        // Permission pre-check varies by audio source.
+        switch pendingAudioSource {
+        case .microphone:
+            guard AudioCaptureManager.shared.hasMicrophonePermission else {
+                logger.info("No mic permission, requesting...")
+                AudioCaptureManager.shared.requestMicrophonePermission { [weak self] granted in
+                    self?.logger.info("Mic permission result: \(granted)")
+                    if granted { self?.startRecording() }
+                }
+                return
             }
-            return
+        case .systemAudio:
+            guard SystemAudioCaptureManager.shared.hasScreenRecordingPermission else {
+                logger.info("No screen recording permission, prompting and opening System Settings")
+                // First call shows the OS prompt; subsequent calls (after denial)
+                // silently return false. Either way, also open System Settings so
+                // the user has a clear path to grant permission later.
+                _ = SystemAudioCaptureManager.shared.requestScreenRecordingPermission()
+                if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
+                    NSWorkspace.shared.open(url)
+                }
+                errorRouter.reportWarning("Enable Screen Recording for VoxNotch in System Settings, then press the hotkey again.")
+                return
+            }
         }
 
-        logger.debug("Starting audio capture...")
+        logger.debug("Starting audio capture from \(String(describing: self.pendingAudioSource))...")
 
         savedFrontmostApp = NSWorkspace.shared.frontmostApplication
         appState.recordingDuration = 0
 
-        do {
-            try stateMachine.beginRecording()
-            logger.debug("Audio capture started")
-        } catch {
-            logger.error("Failed to start audio capture: \(error.localizedDescription)")
-            stateMachine.transition(to: .error(error))
+        let source = pendingAudioSource
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try await self.stateMachine.beginRecording(audioSource: source)
+                self.logger.debug("Audio capture started")
+            } catch {
+                self.logger.error("Failed to start audio capture: \(error.localizedDescription)")
+                self.stateMachine.transition(to: .error(error))
+            }
         }
     }
 

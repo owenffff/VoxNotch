@@ -435,8 +435,8 @@ final class DictationPipelineTests: XCTestCase {
 
     // MARK: - beginRecording
 
-    func testBeginRecordingSetsStateAndStartsAudio() throws {
-        try sm.beginRecording()
+    func testBeginRecordingSetsStateAndStartsAudio() async throws {
+        try await sm.beginRecording()
 
         XCTAssertEqual(sm.state, .recording)
         XCTAssertEqual(mockAudio.startRecordingCallCount, 1)
@@ -445,18 +445,22 @@ final class DictationPipelineTests: XCTestCase {
         XCTAssertNotNil(sm.recordingStartTime)
     }
 
-    func testBeginRecordingThrowsOnAudioError() {
+    func testBeginRecordingThrowsOnAudioError() async {
         mockAudio.stubbedStartError = NSError(domain: "test", code: 1)
 
-        XCTAssertThrowsError(try sm.beginRecording())
-        // State should still be .recording from the transition before the throw
-        // but the controller wraps this in do/catch and transitions to .error
+        do {
+            try await sm.beginRecording()
+            XCTFail("Expected beginRecording to throw")
+        } catch {
+            // expected — state machine transitions to .recording before
+            // delegating to the audio manager's startRecording.
+        }
     }
 
     // MARK: - stopRecordingAndTranscribe: Happy Path
 
     func testStopRecordingTranscribesAndOutputsText() async throws {
-        try sm.beginRecording()
+        try await sm.beginRecording()
         sm.recordingStartTime = testClock.now().addingTimeInterval(-2) // 2 seconds ago
 
         mockTextOutput.hasFocusedTextInputValue = true
@@ -481,8 +485,8 @@ final class DictationPipelineTests: XCTestCase {
 
     // MARK: - stopRecordingAndTranscribe: Too Short
 
-    func testStopRecordingTooShortCancels() throws {
-        try sm.beginRecording()
+    func testStopRecordingTooShortCancels() async throws {
+        try await sm.beginRecording()
         // recordingStartTime is just now → duration < 0.5s
 
         var cancelCalled = false
@@ -498,7 +502,7 @@ final class DictationPipelineTests: XCTestCase {
     // MARK: - stopRecordingAndTranscribe: Empty Transcription
 
     func testEmptyTranscriptionReturnsToIdle() async throws {
-        try sm.beginRecording()
+        try await sm.beginRecording()
         sm.recordingStartTime = testClock.now().addingTimeInterval(-2)
 
         mockTranscription.stubbedResult = TranscriptionResult(
@@ -516,7 +520,7 @@ final class DictationPipelineTests: XCTestCase {
     // MARK: - stopRecordingAndTranscribe: Low Confidence
 
     func testLowConfidenceDiscards() async throws {
-        try sm.beginRecording()
+        try await sm.beginRecording()
         sm.recordingStartTime = testClock.now().addingTimeInterval(-2)
 
         mockTranscription.stubbedResult = TranscriptionResult(
@@ -534,7 +538,7 @@ final class DictationPipelineTests: XCTestCase {
     // MARK: - stopRecordingAndTranscribe: Clipboard Fallback
 
     func testClipboardFallbackWhenNoFocusedInput() async throws {
-        try sm.beginRecording()
+        try await sm.beginRecording()
         sm.recordingStartTime = testClock.now().addingTimeInterval(-2)
 
         mockTextOutput.hasFocusedTextInputValue = false
@@ -553,7 +557,7 @@ final class DictationPipelineTests: XCTestCase {
     // MARK: - stopRecordingAndTranscribe: LLM Processing
 
     func testLLMProcessingApplied() async throws {
-        try sm.beginRecording()
+        try await sm.beginRecording()
         sm.recordingStartTime = testClock.now().addingTimeInterval(-2)
 
         mockLLM.isEnabled = true
@@ -567,7 +571,7 @@ final class DictationPipelineTests: XCTestCase {
     }
 
     func testLLMFallbackFiresWarning() async throws {
-        try sm.beginRecording()
+        try await sm.beginRecording()
         sm.recordingStartTime = testClock.now().addingTimeInterval(-2)
 
         mockLLM.isEnabled = true
@@ -588,7 +592,7 @@ final class DictationPipelineTests: XCTestCase {
     // MARK: - stopRecordingAndTranscribe: Error with Audio Preservation
 
     func testTranscriptionErrorPreservesAudioURL() async throws {
-        try sm.beginRecording()
+        try await sm.beginRecording()
         sm.recordingStartTime = testClock.now().addingTimeInterval(-2)
 
         mockTranscription.stubbedError = NSError(
@@ -646,10 +650,52 @@ final class DictationPipelineTests: XCTestCase {
         }
     }
 
+    // MARK: - Audio Source Switching
+
+    func testBeginRecordingWithSystemAudioUsesSystemManager() async throws {
+        let micMock = MockAudioRecording()
+        let sysMock = MockAudioRecording()
+        let sm2 = DictationStateMachine(
+            audioManager: micMock,
+            systemAudioManager: sysMock,
+            transcriptionEngine: mockTranscription,
+            llmProcessor: mockLLM,
+            textOutputManager: mockTextOutput,
+            clock: testClock
+        )
+
+        try await sm2.beginRecording(audioSource: .systemAudio)
+
+        XCTAssertEqual(sysMock.startRecordingCallCount, 1)
+        XCTAssertEqual(micMock.startRecordingCallCount, 0)
+
+        sm2.cancelPipeline()
+        XCTAssertEqual(sysMock.cancelRecordingCallCount, 1)
+        XCTAssertEqual(micMock.cancelRecordingCallCount, 0)
+    }
+
+    func testBeginRecordingDefaultsToMicrophone() async throws {
+        let micMock = MockAudioRecording()
+        let sysMock = MockAudioRecording()
+        let sm2 = DictationStateMachine(
+            audioManager: micMock,
+            systemAudioManager: sysMock,
+            transcriptionEngine: mockTranscription,
+            llmProcessor: mockLLM,
+            textOutputManager: mockTextOutput,
+            clock: testClock
+        )
+
+        try await sm2.beginRecording()
+
+        XCTAssertEqual(micMock.startRecordingCallCount, 1)
+        XCTAssertEqual(sysMock.startRecordingCallCount, 0)
+    }
+
     // MARK: - cancelPipeline
 
-    func testCancelPipelineResetsState() throws {
-        try sm.beginRecording()
+    func testCancelPipelineResetsState() async throws {
+        try await sm.beginRecording()
         sm.cancelPipeline()
 
         XCTAssertEqual(sm.state, .idle)
@@ -658,8 +704,8 @@ final class DictationPipelineTests: XCTestCase {
 
     // MARK: - stopRecordingQuietly
 
-    func testStopRecordingQuietlyCancelsAudio() throws {
-        try sm.beginRecording()
+    func testStopRecordingQuietlyCancelsAudio() async throws {
+        try await sm.beginRecording()
         sm.stopRecordingQuietly()
 
         XCTAssertEqual(sm.state, .idle)

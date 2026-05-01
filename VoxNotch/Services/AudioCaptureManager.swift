@@ -603,7 +603,7 @@ final class AudioCaptureManager {
         isTapInstalled = true
     }
 
-    func startRecording() throws {
+    func startRecording() async throws {
         guard hasMicrophonePermission else {
             throw AudioCaptureError.permissionDenied
         }

@@ -68,7 +68,7 @@ final class IntegrationTests: XCTestCase {
 
     func testFullPipelineRecordTranscribeOutput() async throws {
         // Simulate: hotkey press → beginRecording
-        try controller.stateMachine.beginRecording()
+        try await controller.stateMachine.beginRecording()
 
         // Verify recording started
         XCTAssertEqual(controller.state, .recording)
@@ -112,7 +112,7 @@ final class IntegrationTests: XCTestCase {
         mockLLM.isEnabled = true
         mockLLM.stubbedResult = .success(processedText: "Hello, world.")
 
-        try controller.stateMachine.beginRecording()
+        try await controller.stateMachine.beginRecording()
         controller.stateMachine.recordingStartTime = Date().addingTimeInterval(-2)
 
         mockTranscription.stubbedResult = TranscriptionResult(
@@ -145,7 +145,7 @@ final class IntegrationTests: XCTestCase {
         )
 
         // First attempt: transcription fails
-        try controller.stateMachine.beginRecording()
+        try await controller.stateMachine.beginRecording()
         controller.stateMachine.recordingStartTime = Date().addingTimeInterval(-2)
 
         mockTranscription.stubbedError = NSError(
@@ -187,8 +187,8 @@ final class IntegrationTests: XCTestCase {
 
     // MARK: - Too Short Recording Cancels
 
-    func testTooShortRecordingCancels() throws {
-        try controller.stateMachine.beginRecording()
+    func testTooShortRecordingCancels() async throws {
+        try await controller.stateMachine.beginRecording()
         // recordingStartTime is just now → duration < 0.5s minimum
 
         controller.stateMachine.stopRecordingAndTranscribe(savedFrontmostApp: nil)
@@ -209,7 +209,7 @@ final class IntegrationTests: XCTestCase {
         )
         mockTextOutput.hasFocusedTextInputValue = true
 
-        try controller.stateMachine.beginRecording()
+        try await controller.stateMachine.beginRecording()
         controller.stateMachine.recordingStartTime = Date().addingTimeInterval(-2)
 
         controller.stateMachine.stopRecordingAndTranscribe(savedFrontmostApp: nil)
